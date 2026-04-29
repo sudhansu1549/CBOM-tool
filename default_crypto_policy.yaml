@@ -1,0 +1,38 @@
+policy_id: default-enterprise-crypto-baseline
+version: 1.0
+name: Enterprise Cryptographic Security Baseline
+
+rules:
+  - id: TLS_LEGACY_VERSION
+    title: Legacy TLS version observed
+    severity: Critical
+    match:
+      crypto_protocol: TLS
+      crypto_version_in: ["SSLv2", "SSLv3", "TLS 1.0", "TLS 1.1"]
+    defensibility_label: Observed
+    recommendation_id: REC-TLS-001
+
+  - id: WEAK_TLS_CIPHER
+    title: Weak TLS cipher suite observed
+    severity: High
+    match:
+      cipher_suite_contains_any: ["RC4", "3DES", "DES", "NULL", "EXPORT", "anon"]
+    defensibility_label: Observed
+    recommendation_id: REC-CIPHER-001
+
+  - id: STATIC_RSA_KEY_EXCHANGE
+    title: Static RSA key exchange observed
+    severity: High
+    match:
+      key_exchange_algorithm: RSA
+      forward_secrecy: false
+    defensibility_label: Observed
+    recommendation_id: REC-FS-001
+
+  - id: PLAINTEXT_PROTOCOL
+    title: Plaintext protocol observed
+    severity: Medium
+    match:
+      application_protocol_in: ["HTTP", "FTP", "Telnet", "SMTP", "POP3", "IMAP", "LDAP", "SNMP"]
+    defensibility_label: Observed
+    recommendation_id: REC-PLAIN-001
