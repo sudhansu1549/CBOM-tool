@@ -1,6 +1,6 @@
 services:
   - type: web
-    name: cryptosight-cbom
+    name: rbi-cbom
     env: docker
     plan: starter
     autoDeploy: true

@@ -1,20 +1,9 @@
 FROM python:3.11-slim
-
 ENV DEBIAN_FRONTEND=noninteractive
-
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    tshark \
-    wireshark-common \
-    ca-certificates \
-    && rm -rf /var/lib/apt/lists/*
-
+RUN apt-get update && apt-get install -y --no-install-recommends tshark wireshark-common ca-certificates && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
-
 COPY requirements.txt /app/requirements.txt
 RUN pip install --no-cache-dir -r requirements.txt
-
 COPY app.py /app/app.py
-
 EXPOSE 8501
-
-CMD ["streamlit", "run", "app.py", "--server.address=0.0.0.0", "--server.port=8501"]
+CMD ["streamlit","run","app.py","--server.address=0.0.0.0","--server.port=8501"]
