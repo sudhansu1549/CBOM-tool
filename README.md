@@ -1,22 +1,26 @@
-# RBI CBOM v7 — Board Sections UI
+# RBI CBOM v6 — Report-Grade Board Dashboard
 
-This version removes the cluttered charts and replaces tabs with a board-ready report page.
+This version adds the report capabilities shown in the attached RBI CBOM PDF:
 
-## Changes
+- Report-style KPI cards: Quantum Readiness, TLS Version, Cipher Suite, Key Exchange
+- Executive Assessment and Board-Level Risk narrative
+- Evidence-backed findings section
+- Board-style CBOM table
+- Observed TLS flows
+- Compliance mapping
+- Quantum remediation roadmap
+- "What this PCAP cannot prove alone" section
+- Parser log
+- Board-ready HTML export
 
-- Removed Quantum Readiness Score chart
-- Removed Evidence Labels chart
-- Removed CBOM Evidence Types chart
-- Removed odd tab layout
-- Added stacked executive sections:
-  - Report CBOM
-  - Observed TLS Flows
-  - Compliance Mapping
-  - Quantum Remediation Roadmap
-  - Evidence + Logs
-  - Exports
-- Improved table readability with selected columns, clearer headings, and board-level notes.
-- Retains built-in PCAP/TLS parser and TLS 1.3 supported_versions correction.
+## Parser capabilities
+
+- Built-in PCAP and PCAPNG parser
+- TLS ClientHello and ServerHello parser
+- TLS 1.3 detection from ServerHello supported_versions
+- Server-selected key share detection
+- Client PQ/hybrid offer detection
+- Report-grade CBOM and technical CBOM
 
 ## Run
 
