@@ -290,6 +290,38 @@ def analyze_bytes(data, filename, meta):
     ]
     return {"document":{"Tool Name":"RBI CBOM","Target Application":meta["target"],"Scan ID":str(uuid.uuid4()),"Assessment Date":datetime.now().strftime("%B %d, %Y"),"Classification":meta["classification"],"Scanner Version":"RBI CBOM PQC Scanner v6.0","Total Packets":len(packets),"PCAP SHA256":pcap_hash},"summary":{"Quantum Readiness":readiness,"Overall Risk":overall,"TLS Version":primary.get("TLS Version","Not observable"),"Cipher Suite":primary.get("Cipher Suite","Not observable"),"Key Exchange":primary.get("Key Exchange","Not observable"),"Server IP":primary.get("Destination","").split(":")[0] if primary else "Not observable","Target":primary.get("SNI",meta["target"]) if primary else meta["target"],"TLS Sessions":len(cbom),"Quantum Readiness Score":score,"Total Assets":len(report_cbom),"Quantum Vulnerable / Weakened":qv},"cbom":cbom,"report_cbom":report_cbom,"findings":findings,"flows":flows,"evidence":evidence,"algorithms":list(algos.values()),"compliance":compliance,"roadmap":roadmap,"parser_logs":logs+[f"TLS sessions identified: {len(cbom)}","TLS 1.3 accuracy rule: ServerHello supported_versions overrides legacy_version."],"limitations":["Certificate chain, certificate expiry, SAN validation, issuer, signature algorithm, and weak certificate checks are not directly visible when TLS 1.3 encrypts certificate messages. Add TLS key-log ingestion or external certificate scan integration for complete certificate assurance.","This dashboard analyzes only traffic present in the uploaded PCAP.","Compliance results are evidence indicators, not formal certification."]}
 
+
+def ensure_quantum_roadmap(report):
+    """Return board-ready remediation roadmap records, even if dynamic recommendations are empty."""
+    recs = report.get("recommendations") or []
+    if recs:
+        return recs
+
+    return [
+        {
+            "Timeline": "0–30 Days",
+            "Recommendation": "Evidence Baseline",
+            "Executive Action": "Establish a defensible cryptographic evidence baseline for RBI-facing endpoints.",
+            "Technical Action": "Run repeated PCAP scans from multiple clients and networks. Add TLS key-log supported certificate validation for controlled tests. Create endpoint-level CBOM inventory.",
+            "Verification": "Board report includes updated CBOM, TLS version, cipher suite, key exchange, and certificate visibility status."
+        },
+        {
+            "Timeline": "30–90 Days",
+            "Recommendation": "Crypto-Agility Readiness",
+            "Executive Action": "Prepare the organization to replace classical cryptography without major application rewrites.",
+            "Technical Action": "Track RSA, ECDSA, ECDHE, P-256, P-384, X25519, ML-KEM, and hybrid usage. Define internal policy for post-quantum transition readiness. Add server-side support checks for hybrid TLS key exchange.",
+            "Verification": "Approved crypto-agility policy and asset-level ownership for all Priority 2 quantum-vulnerable findings."
+        },
+        {
+            "Timeline": "90–180 Days",
+            "Recommendation": "Hybrid PQ Pilot",
+            "Executive Action": "Pilot hybrid post-quantum TLS for critical endpoints and assess operational impact.",
+            "Technical Action": "Pilot X25519 + ML-KEM-768 hybrid key exchange in controlled environments. Measure latency, compatibility, and failure rates. Prepare exception workflows.",
+            "Verification": "Pilot results show compatibility, performance impact, failed-client rate, and migration decision points."
+        }
+    ]
+
+
 def html_report(r):
     """Generate board-ready HTML without using an f-string.
 
@@ -462,7 +494,7 @@ def html_report(r):
         technical_cbom_table=table(r.get("cbom", []), technical_cols if r.get("cbom") and all(c in r["cbom"][0] for c in technical_cols) else None),
         flows_table=table(r.get("flows", []), flow_cols if r.get("flows") and all(c in r["flows"][0] for c in flow_cols) else None),
         compliance_table=table(r.get("compliance", []), comp_cols if r.get("compliance") and all(c in r["compliance"][0] for c in comp_cols) else None),
-        recommendations_table=table(r.get("recommendations", []), rec_cols if r.get("recommendations") and all(c in r["recommendations"][0] for c in rec_cols) else None),
+        recommendations_table=table(ensure_quantum_roadmap(r), rec_cols),
         evidence_table=table(r.get("evidence", [])),
         doc_table=table([doc]) if doc else "<p>No document metadata.</p>",
         parser_log=esc(parser_log),
