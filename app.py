@@ -291,28 +291,186 @@ def analyze_bytes(data, filename, meta):
     return {"document":{"Tool Name":"RBI CBOM","Target Application":meta["target"],"Scan ID":str(uuid.uuid4()),"Assessment Date":datetime.now().strftime("%B %d, %Y"),"Classification":meta["classification"],"Scanner Version":"RBI CBOM PQC Scanner v6.0","Total Packets":len(packets),"PCAP SHA256":pcap_hash},"summary":{"Quantum Readiness":readiness,"Overall Risk":overall,"TLS Version":primary.get("TLS Version","Not observable"),"Cipher Suite":primary.get("Cipher Suite","Not observable"),"Key Exchange":primary.get("Key Exchange","Not observable"),"Server IP":primary.get("Destination","").split(":")[0] if primary else "Not observable","Target":primary.get("SNI",meta["target"]) if primary else meta["target"],"TLS Sessions":len(cbom),"Quantum Readiness Score":score,"Total Assets":len(report_cbom),"Quantum Vulnerable / Weakened":qv},"cbom":cbom,"report_cbom":report_cbom,"findings":findings,"flows":flows,"evidence":evidence,"algorithms":list(algos.values()),"compliance":compliance,"roadmap":roadmap,"parser_logs":logs+[f"TLS sessions identified: {len(cbom)}","TLS 1.3 accuracy rule: ServerHello supported_versions overrides legacy_version."],"limitations":["Certificate chain, certificate expiry, SAN validation, issuer, signature algorithm, and weak certificate checks are not directly visible when TLS 1.3 encrypts certificate messages. Add TLS key-log ingestion or external certificate scan integration for complete certificate assurance.","This dashboard analyzes only traffic present in the uploaded PCAP.","Compliance results are evidence indicators, not formal certification."]}
 
 def html_report(r):
-    def pill(x): return f"<span class='badge {bclass(x)}'>{x}</span>"
-    def rows(items, cols):
-        return ''.join('<tr>'+''.join(f'<td>{pill(v) if c in ["Evidence Type","Status","Confidence"] else v}</td>' for c,v in [(c,str(it.get(c,""))) for c in cols])+'</tr>' for it in items)
-    s=r["summary"]
-    return f"""<!doctype html><html><head><meta charset='utf-8'><title>RBI CBOM</title>
-<style>{open(__file__).read().split('st.markdown(\"\"\"')[1].split('\"\"\"')[0] if False else ''}
-body{{margin:0;background:linear-gradient(135deg,#f8fafc,#eef6ff 55%,#f7fafc);font-family:Inter,Arial,sans-serif;color:#0f172a}}.wrap{{max-width:1180px;margin:auto;padding:44px}}.badge{{display:inline-flex;border-radius:999px;border:1px solid #e2e8f0;padding:7px 11px;font-size:12px;font-weight:800;background:#f8fafc;color:#334155;margin:2px}}.bblue{{background:#eff6ff;color:#1d4ed8;border-color:#bfdbfe}}.bgreen{{background:#ecfdf5;color:#047857;border-color:#a7f3d0}}.bamber{{background:#fffbeb;color:#b45309;border-color:#fde68a}}.bred{{background:#fef2f2;color:#b91c1c;border-color:#fecaca}}.bviolet{{background:#f5f3ff;color:#6d28d9;border-color:#ddd6fe}}h1{{font-size:42px;line-height:1.05;margin:18px 0}}.sub{{font-size:17px;line-height:1.6;color:#64748b}}.card{{background:white;border:1px solid #e2e8f0;border-radius:28px;padding:28px;margin:22px 0;box-shadow:0 8px 22px rgba(15,23,42,.04)}}.grid{{display:grid;grid-template-columns:repeat(4,1fr);gap:16px}}.metric{{background:white;border:1px solid #e2e8f0;border-radius:26px;padding:22px}}.label{{font-size:11px;text-transform:uppercase;color:#64748b;font-weight:900}}.val{{font-size:24px;font-weight:950;margin-top:8px}}table{{width:100%;border-collapse:collapse;background:white;border-radius:24px;overflow:hidden}}th{{background:#f1f5f9;color:#475569;text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:.08em;padding:15px}}td{{border-top:1px solid #f1f5f9;padding:15px;font-size:13px;vertical-align:top}}.flow{{background:#f8fafc;border:1px solid #e2e8f0;border-radius:18px;padding:15px;margin:12px 0}}@media print{{body{{background:white}}.card,.metric{{box-shadow:none}}}}</style></head><body><div class='wrap'>
-<span class='badge bblue'>RBI CBOM</span><span class='badge bviolet'>Quantum Readiness</span><span class='badge'>PCAP Evidence Mode</span>
-<h1>RBI CBOM Quantum Readiness Dashboard</h1><p class='sub'>Standalone executive dashboard for TLS version detection, cryptographic bill of materials, evidence-backed compliance mapping, and harvest-now-decrypt-later quantum-risk assessment from uploaded PCAP files.</p>
-<div class='grid'><div class='metric'><div class='label'>Quantum Readiness</div><div class='val'>{s['Quantum Readiness']}</div>{pill('Transition stage' if s['Quantum Readiness']=='Partially Ready' else s['Overall Risk'])}</div><div class='metric'><div class='label'>TLS Version</div><div class='val'>{s['TLS Version']}</div>{pill('Observed')}</div><div class='metric'><div class='label'>Cipher Suite</div><div class='val' style='font-size:18px'>{s['Cipher Suite']}</div>{pill('Strong')}</div><div class='metric'><div class='label'>Key Exchange</div><div class='val'>{s['Key Exchange'].replace('secp256r1 / ','')}</div>{pill('Classical ECC')}</div></div>
-<div class='card'><h2>Executive Assessment</h2><p>TLS 1.3 is used with modern protocol security. The selected cipher suite is {s['Cipher Suite']}. The final negotiated key exchange is {s['Key Exchange']}. The client appears to offer a hybrid post-quantum key share, but the final session does not show post-quantum or hybrid key exchange. Therefore, the endpoint should not be treated as fully quantum-safe based on this PCAP.</p><p><b>Target:</b> {s['Target']}<br><b>Server IP:</b> {s['Server IP']}<br><b>TLS Sessions:</b> {s['TLS Sessions']}</p></div>
-<div class='card' style='background:#fffbeb;border-color:#fde68a'><h2>Board-Level Risk</h2><p>The endpoint may be secure by current classical TLS standards, but it is not fully quantum-safe because the final negotiated key exchange is classical or not PQ-observable.</p>{pill('Harvest-now-decrypt-later risk present')}</div>
-<h2>Evidence-Backed Findings</h2><div class='card'><table><tr><th>Finding</th><th>Value</th><th>Evidence Type</th><th>Confidence</th><th>Detail</th></tr>{rows(r['findings'][:6], ['Finding','Value','Evidence Type','Confidence','Detail'])}</table></div>
-<h2>Cryptographic Bill of Materials</h2><div class='card'><table><tr><th>Asset</th><th>Value</th><th>Evidence Type</th><th>Confidence</th><th>Executive Note</th></tr>{rows(r['report_cbom'], ['Asset','Value','Evidence Type','Confidence','Executive Note'])}</table></div>
-<h2>Observed TLS Flows</h2><div class='card'>{"".join([f"<div class='flow'><b>Flow {i+1}</b> {pill(fl['TLS'])}<p><code>{fl['Source']} → {fl['Destination']}</code></p><p>SNI: <b>{fl['SNI']}</b> · Cipher: <b>{fl['Cipher']}</b> · KEX: <b>{fl['KEX']}</b></p></div>" for i,fl in enumerate(r['flows'])])}</div>
-<h2>Compliance Mapping</h2><div class='card'><table><tr><th>Framework</th><th>Status</th><th>Evidence Type</th><th>Executive Note</th></tr>{rows(r['compliance'], ['Framework','Status','Evidence Type','Executive Note'])}</table></div>
-<h2>Quantum Remediation Roadmap</h2>{"".join([f"<div class='card'><span class='badge bblue'>{x['Phase']}</span><h2>{x['Title']}</h2><ul>"+''.join([f'<li>{a.strip()}</li>' for a in x['Actions'].split(';')])+"</ul></div>" for x in r['roadmap']])}
-<div class='card' style='background:#fef2f2;border-color:#fecaca'><h2>What This PCAP Cannot Prove Alone</h2><p>{r['limitations'][0]}</p></div>
-<div class='card'><h2>Parser Log</h2><pre>{"\\n".join(r['parser_logs'])}</pre></div>
-<p style='color:#64748b;font-size:12px'>RBI CBOM Dashboard · Use results as evidence indicators. Certificate validation and full compliance sign-off may require TLS secrets, external certificate scans, endpoint configuration review, and manual validation.</p></div></body></html>"""
+    """Generate board-ready HTML without using an f-string.
 
-# UI
+    This avoids Python SyntaxError caused by backslashes inside f-string
+    expression blocks. All dynamic values are assembled before formatting.
+    """
+    import html as _html
+
+    def esc(x):
+        return _html.escape(str(x if x is not None else ""))
+
+    def table(rows, columns=None):
+        if not rows:
+            return "<p class='muted'>No records.</p>"
+        if columns is None:
+            columns = list(rows[0].keys())
+        head = "".join("<th>{}</th>".format(esc(c)) for c in columns)
+        body_rows = []
+        for row in rows:
+            cells = "".join("<td>{}</td>".format(esc(row.get(c, ""))) for c in columns)
+            body_rows.append("<tr>{}</tr>".format(cells))
+        return "<div class='tableWrap'><table><thead><tr>{}</tr></thead><tbody>{}</tbody></table></div>".format(
+            head, "".join(body_rows)
+        )
+
+    summary = r.get("summary", {})
+    doc = r.get("document", {})
+    parser_log = "\n".join(str(x) for x in r.get("parser_logs", []))
+    limitations = "".join("<li>{}</li>".format(esc(x)) for x in r.get("limitations", []))
+
+    cbom_cols = [
+        "Asset", "Value", "Evidence Type", "Confidence", "Executive Note"
+    ]
+    technical_cols = [
+        "CBOM ID", "Asset", "Protocol", "TLS Version", "Cipher Suite",
+        "Key Exchange", "Quantum Readiness", "Quantum Safe", "Priority",
+        "Risk", "Evidence Type", "Confidence"
+    ]
+    flow_cols = ["Source", "Destination", "SNI", "TLS", "Cipher", "KEX", "Quantum"]
+    comp_cols = ["Framework", "Status", "Evidence Type", "Executive Note"]
+    rec_cols = ["Timeline", "Recommendation", "Executive Action", "Technical Action", "Verification"]
+
+    css = """
+    <style>
+    body{margin:0;background:#f7fafc;font-family:Inter,Arial,sans-serif;color:#0f172a}
+    .wrap{max-width:1120px;margin:auto;padding:34px}
+    .hero{background:#fff;border:1px solid #e2e8f0;border-radius:34px;padding:34px;box-shadow:0 16px 40px rgba(15,23,42,.08)}
+    h1{font-size:42px;line-height:1.05;margin:14px 0;letter-spacing:-1.3px}
+    h2{font-size:25px;margin-top:36px}
+    h3{font-size:20px;margin:0 0 12px}
+    p{line-height:1.58}
+    .sub{color:#64748b;font-size:16px}
+    .badge{display:inline-flex;border-radius:999px;border:1px solid #e2e8f0;padding:7px 11px;font-size:12px;font-weight:800;background:#f8fafc;color:#334155;margin:2px}
+    .bblue{background:#eff6ff;color:#1d4ed8;border-color:#bfdbfe}
+    .bgreen{background:#ecfdf5;color:#047857;border-color:#a7f3d0}
+    .bamber{background:#fffbeb;color:#b45309;border-color:#fde68a}
+    .grid{display:grid;grid-template-columns:repeat(4,1fr);gap:18px;margin:28px 0}
+    .metric{background:#fff;border:1px solid #e2e8f0;border-radius:26px;padding:22px;box-shadow:0 6px 18px rgba(15,23,42,.04)}
+    .metric small{display:block;font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:#64748b;font-weight:900}
+    .metric b{display:block;font-size:24px;margin-top:8px}
+    .card{background:white;border:1px solid #e2e8f0;border-radius:28px;padding:24px;box-shadow:0 8px 22px rgba(15,23,42,.04);margin:18px 0}
+    .risk{background:#fffbeb;border-color:#fde68a;color:#92400e}
+    .warn{background:#fef2f2;border-color:#fecaca;color:#991b1b}
+    .tableWrap{border:1px solid #e2e8f0;border-radius:24px;overflow:auto;background:white;box-shadow:0 8px 22px rgba(15,23,42,.04)}
+    table{width:100%;border-collapse:collapse;background:white;font-size:12px}
+    th{background:#f1f5f9;color:#475569;text-align:left;text-transform:uppercase;font-size:11px;letter-spacing:.08em;padding:14px}
+    td{border-top:1px solid #f1f5f9;padding:13px;vertical-align:top}
+    .console{font-family:monospace;background:#020617;color:#d1fae5;border-radius:20px;padding:16px;white-space:pre-wrap;font-size:12px;line-height:1.45}
+    .muted{color:#64748b}
+    @media print{body{background:white}.wrap{padding:0}.hero,.card,.metric{box-shadow:none}}
+    </style>
+    """
+
+    html_doc = """
+    <!doctype html>
+    <html>
+    <head>
+      <meta charset="utf-8">
+      <title>RBI CBOM Board Report</title>
+      {css}
+    </head>
+    <body>
+      <div class="wrap">
+        <div class="hero">
+          <span class="badge bblue">RBI CBOM</span>
+          <span class="badge">Quantum Readiness</span>
+          <span class="badge">PCAP Evidence Mode</span>
+          <h1>RBI CBOM Quantum Readiness Dashboard</h1>
+          <p class="sub">Standalone executive dashboard for TLS version detection, cryptographic bill of materials, evidence-backed compliance mapping, and harvest-now-decrypt-later quantum-risk assessment from uploaded PCAP files.</p>
+
+          <div class="grid">
+            <div class="metric"><small>Quantum Readiness</small><b>{quantum_readiness}</b><span class="badge bamber">{overall_risk}</span></div>
+            <div class="metric"><small>TLS Version</small><b>{tls_version}</b><span class="badge bgreen">Observed</span></div>
+            <div class="metric"><small>Cipher Suite</small><b style="font-size:16px">{cipher_suite}</b><span class="badge bgreen">Strong</span></div>
+            <div class="metric"><small>Key Exchange</small><b>{key_exchange}</b><span class="badge bamber">Classical ECC</span></div>
+          </div>
+
+          <div class="card">
+            <h3>Executive Assessment</h3>
+            <p>{executive_assessment}</p>
+          </div>
+
+          <div class="card risk">
+            <h3>Board-Level Risk</h3>
+            <p>{board_risk}</p>
+            <span class="badge bamber">Harvest-now-decrypt-later risk present</span>
+          </div>
+
+          <h2>Evidence-Backed Findings</h2>
+          {findings_table}
+
+          <h2>Cryptographic Bill of Materials</h2>
+          {report_cbom_table}
+
+          <h2>Technical CBOM Inventory</h2>
+          {technical_cbom_table}
+
+          <h2>Observed TLS Flows</h2>
+          {flows_table}
+
+          <h2>Compliance Mapping</h2>
+          {compliance_table}
+
+          <h2>Quantum Remediation Roadmap</h2>
+          {recommendations_table}
+
+          <div class="card warn">
+            <h3>What This PCAP Cannot Prove Alone</h3>
+            <p>Certificate chain, certificate expiry, SAN validation, issuer, signature algorithm, and weak certificate checks may not be directly visible when TLS 1.3 encrypts certificate messages. Add TLS key-log ingestion or external certificate scan integration for complete certificate assurance.</p>
+          </div>
+
+          <h2>Evidence Appendix</h2>
+          {evidence_table}
+
+          <h2>Document Control</h2>
+          {doc_table}
+
+          <h2>Parser Log</h2>
+          <div class="console">{parser_log}</div>
+
+          <h2>Limitations</h2>
+          <ul>{limitations}</ul>
+
+          <p style="color:#64748b;font-size:12px">RBI CBOM Dashboard · Use results as evidence indicators. Certificate validation and full compliance sign-off may require TLS secrets, external certificate scans, endpoint configuration review, and manual validation.</p>
+        </div>
+      </div>
+    </body>
+    </html>
+    """.format(
+        css=css,
+        quantum_readiness=esc(summary.get("Quantum Readiness", "Unknown")),
+        overall_risk=esc(summary.get("Overall Risk", "Unknown")),
+        tls_version=esc(summary.get("TLS Version", "Not observable")),
+        cipher_suite=esc(summary.get("Cipher Suite", "Not observable")),
+        key_exchange=esc(summary.get("Key Exchange", "Not observable")),
+        executive_assessment=esc(
+            summary.get(
+                "Executive Assessment",
+                "TLS posture and quantum readiness are assessed from visible PCAP handshake evidence."
+            )
+        ),
+        board_risk=esc(
+            summary.get(
+                "Board Risk",
+                "Classical key exchange may expose long-lived sensitive data to harvest-now-decrypt-later risk unless hybrid/PQC is negotiated."
+            )
+        ),
+        findings_table=table(r.get("findings", [])),
+        report_cbom_table=table(r.get("report_cbom", []), cbom_cols) if r.get("report_cbom") else table(r.get("cbom", [])),
+        technical_cbom_table=table(r.get("cbom", []), technical_cols if r.get("cbom") and all(c in r["cbom"][0] for c in technical_cols) else None),
+        flows_table=table(r.get("flows", []), flow_cols if r.get("flows") and all(c in r["flows"][0] for c in flow_cols) else None),
+        compliance_table=table(r.get("compliance", []), comp_cols if r.get("compliance") and all(c in r["compliance"][0] for c in comp_cols) else None),
+        recommendations_table=table(r.get("recommendations", []), rec_cols if r.get("recommendations") and all(c in r["recommendations"][0] for c in rec_cols) else None),
+        evidence_table=table(r.get("evidence", [])),
+        doc_table=table([doc]) if doc else "<p>No document metadata.</p>",
+        parser_log=esc(parser_log),
+        limitations=limitations
+    )
+    return html_doc
+
+
 st.sidebar.title("🛡️ RBI CBOM")
 target=st.sidebar.text_input("Target Application","RBI-Website")
 unit=st.sidebar.text_input("Business Unit","Network")
