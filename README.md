@@ -1,17 +1,26 @@
-# RBI CBOM v5 — Fixed Parser
+# RBI CBOM v6 — Report-Grade Board Dashboard
 
-This version fixes the issue where the dashboard identifies nothing by using a built-in PCAP/TLS parser for core TLS detection.
+This version adds the report capabilities shown in the attached RBI CBOM PDF:
 
-## Key fixes
+- Report-style KPI cards: Quantum Readiness, TLS Version, Cipher Suite, Key Exchange
+- Executive Assessment and Board-Level Risk narrative
+- Evidence-backed findings section
+- Board-style CBOM table
+- Observed TLS flows
+- Compliance mapping
+- Quantum remediation roadmap
+- "What this PCAP cannot prove alone" section
+- Parser log
+- Board-ready HTML export
 
-- No dependency on tshark for core TLS detection.
-- Parses PCAP and PCAPNG directly.
-- Parses TLS ClientHello and ServerHello directly.
-- Correctly identifies TLS 1.3 from ServerHello supported_versions extension.
-- Does not mislabel TLS 1.3 as TLS 1.2 due to legacy_version.
-- Extracts cipher suite, SNI, key exchange group where visible.
-- Detects client PQ/hybrid offers and server negotiated PQ/hybrid groups.
-- Presents board-ready executive dashboard.
+## Parser capabilities
+
+- Built-in PCAP and PCAPNG parser
+- TLS ClientHello and ServerHello parser
+- TLS 1.3 detection from ServerHello supported_versions
+- Server-selected key share detection
+- Client PQ/hybrid offer detection
+- Report-grade CBOM and technical CBOM
 
 ## Run
 
