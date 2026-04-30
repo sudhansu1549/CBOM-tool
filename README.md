@@ -1,27 +1,28 @@
-# RBI CBOM v2 — Executive Quantum Readiness Dashboard
+# RBI CBOM v3 — Board-Ready Quantum Readiness Dashboard
 
-This version improves the dashboard in three ways:
+This version modifies RBI CBOM to present reports in the executive style of the attached HTML dashboard.
 
-1. **Better quantum-readiness accuracy**
-   - TLS 1.3 is not automatically treated as quantum-safe.
-   - Classical ECDHE / X25519 / secp256r1 / RSA / DHE / ECDSA are treated as Shor-vulnerable.
-   - AES-256 and SHA-384/512 are treated as having better post-quantum margin.
-   - AES-128 and SHA-256 are treated as quantum-weakened indicators.
-   - PQC-safe status is assigned only where hybrid/PQC algorithms are actually observed.
-   - Missing key-share or incomplete handshakes are clearly labelled as lower-confidence or requiring validation.
+## Executive/board features
 
-2. **Removed Table of Contents**
-   - The dashboard now uses modern executive tabs instead of a report-like TOC page.
+- Large board-ready hero section
+- Executive KPI cards
+- Board-level risk narrative
+- Evidence-backed findings cards
+- CBOM inventory table
+- Observed TLS flows
+- Compliance mapping for CISO/audit discussion
+- Quantum remediation roadmap
+- Parser log and limitations section
+- Board-ready downloadable HTML report
+- JSON, CBOM CSV, and Compliance CSV exports
 
-3. **Modern executive UI**
-   - Executive risk overview
-   - Quantum readiness panel
-   - Protocol and TLS analysis
-   - CBOM inventory
-   - Compliance and policy assessment
-   - Recommendations and remediation roadmap
-   - Evidence explorer
-   - Downloadable HTML, JSON, CSV reports
+## Accuracy model
+
+- TLS 1.3 is not automatically treated as quantum-safe.
+- Classical ECDHE / X25519 / secp256r1 / RSA / DHE / ECDSA are treated as Shor-vulnerable.
+- AES-256 / SHA-384+ are treated as having stronger post-quantum symmetric margin.
+- PQC-safe status is assigned only where hybrid/PQC algorithms are actually observed.
+- Missing key-share or incomplete handshakes are labelled with lower confidence or manual validation.
 
 ## Run with Docker
 
