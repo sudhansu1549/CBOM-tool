@@ -322,6 +322,40 @@ def ensure_quantum_roadmap(report):
     ]
 
 
+
+def remove_unwanted_board_fields(report):
+    """Remove board-hidden fields requested by user from visible report payload."""
+    hidden_keys = {"Quantum Readiness Score", "Evidence Label"}
+    if isinstance(report, dict):
+        if isinstance(report.get("summary"), dict):
+            report["summary"] = {k: v for k, v in report["summary"].items() if k not in hidden_keys}
+        # Remove evidence-label/type columns from visible tables, but keep raw evidence internally where needed.
+        for key in ["cbom", "findings", "compliance", "recommendations", "flows", "report_cbom"]:
+            if isinstance(report.get(key), list):
+                cleaned = []
+                for row in report[key]:
+                    if isinstance(row, dict):
+                        cleaned.append({k: v for k, v in row.items() if k not in hidden_keys})
+                    else:
+                        cleaned.append(row)
+                report[key] = cleaned
+    return report
+
+def clean_display_df(df):
+    """Remove user-hidden columns from dashboard tables."""
+    try:
+        drop_cols = [c for c in ["Evidence Label", "Quantum Readiness Score"] if c in df.columns]
+        if drop_cols:
+            df = df.drop(columns=drop_cols)
+        # Remove rows where first column is Quantum Readiness Score
+        if len(df.columns) >= 1:
+            first_col = df.columns[0]
+            df = df[df[first_col].astype(str) != "Quantum Readiness Score"]
+    except Exception:
+        pass
+    return df
+
+
 def html_report(r):
     """Generate board-ready HTML without using an f-string.
 
@@ -353,15 +387,15 @@ def html_report(r):
     limitations = "".join("<li>{}</li>".format(esc(x)) for x in r.get("limitations", []))
 
     cbom_cols = [
-        "Asset", "Value", "Evidence Type", "Confidence", "Executive Note"
+        "Asset", "Value", "Confidence", "Executive Note"
     ]
     technical_cols = [
         "CBOM ID", "Asset", "Protocol", "TLS Version", "Cipher Suite",
         "Key Exchange", "Quantum Readiness", "Quantum Safe", "Priority",
-        "Risk", "Evidence Type", "Confidence"
+        "Risk", "Confidence"
     ]
     flow_cols = ["Source", "Destination", "SNI", "TLS", "Cipher", "KEX", "Quantum"]
-    comp_cols = ["Framework", "Status", "Evidence Type", "Executive Note"]
+    comp_cols = ["Framework", "Status", "Executive Note"]
     rec_cols = ["Timeline", "Recommendation", "Executive Action", "Technical Action", "Verification"]
 
     css = """
@@ -529,13 +563,9 @@ st.markdown(f"""<div class="two"><div class="card dark"><h3>Executive Assessment
 
 # Visuals
 c1,c2,c3=st.columns(3)
-with c1:
-    fig=go.Figure(go.Indicator(mode="gauge+number",value=s["Quantum Readiness Score"],title={"text":"Quantum Readiness Score"},gauge={"axis":{"range":[0,100]},"bar":{"color":"#2563eb"},"steps":[{"range":[0,40],"color":"#fef2f2"},{"range":[40,75],"color":"#fffbeb"},{"range":[75,100],"color":"#ecfdf5"}]}))
-    fig.update_layout(height=290,margin=dict(l=20,r=20,t=50,b=20),paper_bgcolor="rgba(0,0,0,0)")
-    st.plotly_chart(fig,use_container_width=True)
 with c2:
     fdf=pd.DataFrame(report["findings"][:6])
-    fig=px.pie(fdf,names="Evidence Type",hole=.58,title="Evidence Labels")
+    fig=px.pie(fdf,names="Evidence Type",hole=.58,title="")
     fig.update_layout(height=290,paper_bgcolor="rgba(0,0,0,0)")
     st.plotly_chart(fig,use_container_width=True)
 with c3:
@@ -553,18 +583,18 @@ st.markdown(f"<div class='findings'>{cards}</div>",unsafe_allow_html=True)
 tabs=st.tabs(["Report CBOM","Observed TLS Flows","Compliance Mapping","Roadmap","Evidence + Logs","Exports"])
 with tabs[0]:
     st.markdown("### Cryptographic Bill of Materials")
-    st.dataframe(pd.DataFrame(report["report_cbom"]),use_container_width=True,hide_index=True)
+    st.dataframe(clean_display_df(pd.DataFrame(report["report_cbom"])),use_container_width=True,hide_index=True)
     st.markdown("### Technical CBOM")
-    st.dataframe(pd.DataFrame(report["cbom"]),use_container_width=True,hide_index=True)
+    st.dataframe(clean_display_df(pd.DataFrame(report["cbom"])),use_container_width=True,hide_index=True)
 with tabs[1]:
     for i,fl in enumerate(report["flows"],1):
         st.markdown(f"""<div class="flow"><b>Flow {i}</b> {badge(fl['TLS'])}<p><code>{fl['Source']} → {fl['Destination']}</code></p><p class="muted">SNI: <b>{fl['SNI']}</b> · Cipher: <b>{fl['Cipher']}</b> · KEX: <b>{fl['KEX']}</b></p></div>""",unsafe_allow_html=True)
 with tabs[2]:
-    st.dataframe(pd.DataFrame(report["compliance"]),use_container_width=True,hide_index=True)
+    st.dataframe(clean_display_df(pd.DataFrame(report["compliance"])),use_container_width=True,hide_index=True)
 with tabs[3]:
     st.markdown('<div class="road">'+"".join([f"<div class='card'><span class='badge bblue'>{x['Phase']}</span><h3 style='margin-top:14px'>{x['Title']}</h3><ul>"+''.join([f'<li>{a.strip()}</li>' for a in x['Actions'].split(';')])+"</ul></div>" for x in report["roadmap"]])+"</div>",unsafe_allow_html=True)
 with tabs[4]:
-    st.dataframe(pd.DataFrame(report["evidence"]),use_container_width=True,hide_index=True)
+    st.dataframe(clean_display_df(pd.DataFrame(report["evidence"])),use_container_width=True,hide_index=True)
     st.markdown("### What This PCAP Cannot Prove Alone")
     st.markdown(f"<div class='card warn'><p>{report['limitations'][0]}</p></div>",unsafe_allow_html=True)
     st.markdown("### Parser Log")

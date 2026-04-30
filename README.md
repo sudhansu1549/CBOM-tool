@@ -35,3 +35,13 @@ streamlit run app.py
 docker build -t rbi-cbom .
 docker run --rm -p 8501:8501 rbi-cbom
 ```
+
+
+## Latest cleanup
+
+This build removes the board-facing display of:
+- Quantum Readiness Score
+- Evidence labels / Evidence Type columns
+- CBOM evidence types chart
+
+The rest of the executive dashboard and report remain unchanged.
