@@ -288,7 +288,7 @@ def analyze_bytes(data, filename, meta):
         {"Phase":"30–90 Days","Title":"Crypto-Agility Readiness","Actions":"Track RSA, ECDSA, ECDHE, P-256, P-384, X25519, ML-KEM, and hybrid usage; define internal policy for PQ transition readiness; add server-side support checks for hybrid TLS key exchange."},
         {"Phase":"90–180 Days","Title":"Hybrid PQ Pilot","Actions":"Pilot X25519 + ML-KEM-768 hybrid key exchange in controlled environments; measure latency, compatibility and failure rates; prepare board-level quantum-risk reporting and exception workflows."}
     ]
-    return {"document":{"Tool Name":"RBI CBOM","Target Application":meta["target"],"Scan ID":str(uuid.uuid4()),"Assessment Date":datetime.now().strftime("%B %d, %Y"),"Classification":meta["classification"],"Scanner Version":"RBI CBOM PQC Scanner v6.0","Total Packets":len(packets),"PCAP SHA256":pcap_hash},"summary":{"Quantum Readiness":readiness,"Overall Risk":overall,"TLS Version":primary.get("TLS Version","Not observable"),"Cipher Suite":primary.get("Cipher Suite","Not observable"),"Key Exchange":primary.get("Key Exchange","Not observable"),"Server IP":primary.get("Destination","").split(":")[0] if primary else "Not observable","Target":primary.get("SNI",meta["target"]) if primary else meta["target"],"TLS Sessions":len(cbom),"Quantum Readiness Score":score,"Total Assets":len(report_cbom),"Quantum Vulnerable / Weakened":qv},"cbom":cbom,"report_cbom":report_cbom,"findings":findings,"flows":flows,"evidence":evidence,"algorithms":list(algos.values()),"compliance":compliance,"roadmap":roadmap,"parser_logs":logs+[f"TLS sessions identified: {len(cbom)}","TLS 1.3 accuracy rule: ServerHello supported_versions overrides legacy_version."],"limitations":["Certificate chain, certificate expiry, SAN validation, issuer, signature algorithm, and weak certificate checks are not directly visible when TLS 1.3 encrypts certificate messages. Add TLS key-log ingestion or external certificate scan integration for complete certificate assurance.","This dashboard analyzes only traffic present in the uploaded PCAP.","Compliance results are evidence indicators, not formal certification."]}
+    return {"document":{"Tool Name":"RBI CBOM","Target Application":meta["target"],"Scan ID":str(uuid.uuid4()),"Assessment Date":datetime.now().strftime("%B %d, %Y"),"Classification":meta["classification"],"Scanner Version":"RBI CBOM PQC Scanner v6.0","Total Packets":len(packets),"PCAP SHA256":pcap_hash},"summary":{"Quantum Readiness":readiness,"Overall Risk":overall,"TLS Version":primary.get("TLS Version","Not observable"),"Cipher Suite":primary.get("Cipher Suite","Not observable"),"Key Exchange":primary.get("Key Exchange","Not observable"),"Server IP":primary.get("Destination","").split(":")[0] if primary else "Not observable","Target":primary.get("SNI",meta["target"]) if primary else meta["target"],"TLS Sessions":len(cbom),"Quantum Readiness":score,"Total Assets":len(report_cbom),"Quantum Vulnerable / Weakened":qv},"cbom":cbom,"report_cbom":report_cbom,"findings":findings,"flows":flows,"evidence":evidence,"algorithms":list(algos.values()),"compliance":compliance,"roadmap":roadmap,"parser_logs":logs+[f"TLS sessions identified: {len(cbom)}","TLS 1.3 accuracy rule: ServerHello supported_versions overrides legacy_version."],"limitations":["Certificate chain, certificate expiry, SAN validation, issuer, signature algorithm, and weak certificate checks are not directly visible when TLS 1.3 encrypts certificate messages. Add TLS key-log ingestion or external certificate scan integration for complete certificate assurance.","This dashboard analyzes only traffic present in the uploaded PCAP.","Compliance results are evidence indicators, not formal certification."]}
 
 
 def ensure_quantum_roadmap(report):
@@ -323,37 +323,40 @@ def ensure_quantum_roadmap(report):
 
 
 
-def remove_unwanted_board_fields(report):
-    """Remove board-hidden fields requested by user from visible report payload."""
-    hidden_keys = {"Quantum Readiness Score", "Evidence Label"}
-    if isinstance(report, dict):
-        if isinstance(report.get("summary"), dict):
-            report["summary"] = {k: v for k, v in report["summary"].items() if k not in hidden_keys}
-        # Remove evidence-label/type columns from visible tables, but keep raw evidence internally where needed.
-        for key in ["cbom", "findings", "compliance", "recommendations", "flows", "report_cbom"]:
-            if isinstance(report.get(key), list):
-                cleaned = []
-                for row in report[key]:
-                    if isinstance(row, dict):
-                        cleaned.append({k: v for k, v in row.items() if k not in hidden_keys})
-                    else:
-                        cleaned.append(row)
-                report[key] = cleaned
-    return report
+def clean_board_records(rows):
+    """Remove user-hidden fields from board-facing tables."""
+    hidden = {"Evidence Type", "Evidence Label", "Quantum Readiness Score"}
+    cleaned = []
+    for row in rows or []:
+        if isinstance(row, dict):
+            cleaned.append({k: v for k, v in row.items() if k not in hidden})
+        else:
+            cleaned.append(row)
+    return cleaned
 
-def clean_display_df(df):
-    """Remove user-hidden columns from dashboard tables."""
+def clean_board_df(df):
+    """Remove user-hidden columns/rows from dashboard DataFrames."""
     try:
-        drop_cols = [c for c in ["Evidence Label", "Quantum Readiness Score"] if c in df.columns]
+        drop_cols = [c for c in ["Evidence Type", "Evidence Label", "Quantum Readiness Score"] if c in df.columns]
         if drop_cols:
             df = df.drop(columns=drop_cols)
-        # Remove rows where first column is Quantum Readiness Score
         if len(df.columns) >= 1:
             first_col = df.columns[0]
             df = df[df[first_col].astype(str) != "Quantum Readiness Score"]
     except Exception:
         pass
     return df
+
+def clean_board_report(report):
+    """Remove user-hidden fields from visible/exported report structures."""
+    if not isinstance(report, dict):
+        return report
+    if isinstance(report.get("summary"), dict):
+        report["summary"].pop("Quantum Readiness Score", None)
+    for key in ["report_cbom", "cbom", "findings", "flows", "compliance", "roadmap", "recommendations", "evidence", "algorithms"]:
+        if isinstance(report.get(key), list):
+            report[key] = clean_board_records(report[key])
+    return report
 
 
 def html_report(r):
@@ -561,40 +564,28 @@ s=report["summary"]
 st.markdown(f"""<div class="grid4"><div class="metric"><div class="label">Quantum Readiness</div><div class="val">{s['Quantum Readiness']}</div><div class="note">{badge('Transition stage' if s['Quantum Readiness']=='Partially Ready' else s['Overall Risk'])}</div></div><div class="metric"><div class="label">TLS Version</div><div class="val">{s['TLS Version']}</div><div class="note">{badge('Observed')}</div></div><div class="metric"><div class="label">Cipher Suite</div><div class="val" style="font-size:17px">{s['Cipher Suite']}</div><div class="note">{badge('Strong')}</div></div><div class="metric"><div class="label">Key Exchange</div><div class="val">{s['Key Exchange'].replace('secp256r1 / ','')}</div><div class="note">{badge('Classical ECC')}</div></div></div>""", unsafe_allow_html=True)
 st.markdown(f"""<div class="two"><div class="card dark"><h3>Executive Assessment</h3><p>TLS 1.3 is used with modern protocol security. The selected cipher suite is {s['Cipher Suite']}. The final negotiated key exchange is {s['Key Exchange']}. The client appears to offer a hybrid post-quantum key share, but the final session does not show post-quantum or hybrid key exchange. Therefore, the endpoint should not be treated as fully quantum-safe based on this PCAP.</p><div class="kpis"><div class="kpi"><small>Target</small><strong>{s['Target']}</strong></div><div class="kpi"><small>Server IP</small><strong>{s['Server IP']}</strong></div><div class="kpi"><small>TLS Sessions</small><strong>{s['TLS Sessions']}</strong></div></div></div><div class="card risk"><h3>Board-Level Risk</h3><p>The endpoint may be secure by current classical TLS standards, but it is not fully quantum-safe because the final negotiated key exchange is classical or not PQ-observable.</p>{badge('Harvest-now-decrypt-later risk present')}</div></div>""", unsafe_allow_html=True)
 
-# Visuals
-c1,c2,c3=st.columns(3)
-with c2:
-    fdf=pd.DataFrame(report["findings"][:6])
-    fig=px.pie(fdf,names="Evidence Type",hole=.58,title="")
-    fig.update_layout(height=290,paper_bgcolor="rgba(0,0,0,0)")
-    st.plotly_chart(fig,use_container_width=True)
-with c3:
-    rdf=pd.DataFrame(report["report_cbom"])
-    fig=px.bar(rdf["Evidence Type"].value_counts().reset_index(),x="Evidence Type",y="count",text="count",title="CBOM Evidence Types")
-    fig.update_layout(height=290,paper_bgcolor="rgba(0,0,0,0)")
-    st.plotly_chart(fig,use_container_width=True)
-
-st.markdown('<div class="sectionHead"><div><h2>Evidence-Backed Findings</h2><p class="desc">Every claim is labelled as Observed, Inferred, Risk Indicator, or Requires Manual Validation.</p></div></div>', unsafe_allow_html=True)
+# Board charts removed per request: no Quantum Readiness /  /  charts.
+st.markdown('<div class="sectionHead"><div><h2>Evidence-Backed Findings</h2><p class="desc">Board-facing findings are summarized with status, confidence, and business impact.</p></div></div>', unsafe_allow_html=True)
 cards=""
 for f in report["findings"][:6]:
-    cards+=f"""<div class="finding"><div class="findingTop">{badge(f['Evidence Type'])}{badge(f['Confidence'])}</div><div class="title">{f['Finding']}</div><div class="value">{f['Value']}</div><div class="detail">{f['Detail']}</div><div class="foot"><span>Status: {f['Status']}</span><span>Confidence: {f['Confidence']}</span></div></div>"""
+    cards+=f"""<div class="finding"><div class="findingTop">{badge(f['Confidence'])}</div><div class="title">{f['Finding']}</div><div class="value">{f['Value']}</div><div class="detail">{f['Detail']}</div><div class="foot"><span>Status: {f['Status']}</span><span>Confidence: {f['Confidence']}</span></div></div>"""
 st.markdown(f"<div class='findings'>{cards}</div>",unsafe_allow_html=True)
 
 tabs=st.tabs(["Report CBOM","Observed TLS Flows","Compliance Mapping","Roadmap","Evidence + Logs","Exports"])
 with tabs[0]:
     st.markdown("### Cryptographic Bill of Materials")
-    st.dataframe(clean_display_df(pd.DataFrame(report["report_cbom"])),use_container_width=True,hide_index=True)
+    st.dataframe(clean_board_df(pd.DataFrame(report["report_cbom"])),use_container_width=True,hide_index=True)
     st.markdown("### Technical CBOM")
-    st.dataframe(clean_display_df(pd.DataFrame(report["cbom"])),use_container_width=True,hide_index=True)
+    st.dataframe(clean_board_df(pd.DataFrame(report["cbom"])),use_container_width=True,hide_index=True)
 with tabs[1]:
     for i,fl in enumerate(report["flows"],1):
         st.markdown(f"""<div class="flow"><b>Flow {i}</b> {badge(fl['TLS'])}<p><code>{fl['Source']} → {fl['Destination']}</code></p><p class="muted">SNI: <b>{fl['SNI']}</b> · Cipher: <b>{fl['Cipher']}</b> · KEX: <b>{fl['KEX']}</b></p></div>""",unsafe_allow_html=True)
 with tabs[2]:
-    st.dataframe(clean_display_df(pd.DataFrame(report["compliance"])),use_container_width=True,hide_index=True)
+    st.dataframe(clean_board_df(pd.DataFrame(report["compliance"])),use_container_width=True,hide_index=True)
 with tabs[3]:
     st.markdown('<div class="road">'+"".join([f"<div class='card'><span class='badge bblue'>{x['Phase']}</span><h3 style='margin-top:14px'>{x['Title']}</h3><ul>"+''.join([f'<li>{a.strip()}</li>' for a in x['Actions'].split(';')])+"</ul></div>" for x in report["roadmap"]])+"</div>",unsafe_allow_html=True)
 with tabs[4]:
-    st.dataframe(clean_display_df(pd.DataFrame(report["evidence"])),use_container_width=True,hide_index=True)
+    st.dataframe(clean_board_df(pd.DataFrame(report["evidence"])),use_container_width=True,hide_index=True)
     st.markdown("### What This PCAP Cannot Prove Alone")
     st.markdown(f"<div class='card warn'><p>{report['limitations'][0]}</p></div>",unsafe_allow_html=True)
     st.markdown("### Parser Log")
@@ -602,7 +593,7 @@ with tabs[4]:
 with tabs[5]:
     st.download_button("Download Board-Ready HTML Report",html_report(report),"rbi_cbom_board_report.html","text/html")
     st.download_button("Download Full JSON Report",json.dumps(report,indent=2),"rbi_cbom_report.json","application/json")
-    st.download_button("Download Report CBOM CSV",pd.DataFrame(report["report_cbom"]).to_csv(index=False),"rbi_cbom_report.csv","text/csv")
-    st.download_button("Download Technical CBOM CSV",pd.DataFrame(report["cbom"]).to_csv(index=False),"rbi_cbom_technical.csv","text/csv")
+    st.download_button("Download Report CBOM CSV",clean_board_df(pd.DataFrame(report["report_cbom"])).to_csv(index=False),"rbi_cbom_report.csv","text/csv")
+    st.download_button("Download Technical CBOM CSV",clean_board_df(pd.DataFrame(report["cbom"])).to_csv(index=False),"rbi_cbom_technical.csv","text/csv")
 
 st.caption("RBI CBOM Dashboard · Built-in PCAP analysis · Use results as evidence indicators. Certificate validation and full compliance sign-off may require TLS secrets, external certificate scans, endpoint configuration review, and manual validation.")

@@ -37,11 +37,10 @@ docker run --rm -p 8501:8501 rbi-cbom
 ```
 
 
-## Latest cleanup
+## Final board cleanup
 
-This build removes the board-facing display of:
+Removed from dashboard and exported report:
 - Quantum Readiness Score
-- Evidence labels / Evidence Type columns
+- Evidence labels / Evidence Type fields
+- Evidence labels chart
 - CBOM evidence types chart
-
-The rest of the executive dashboard and report remain unchanged.
