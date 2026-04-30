@@ -1,28 +1,31 @@
-# RBI CBOM v3 — Board-Ready Quantum Readiness Dashboard
+# RBI CBOM v4 — Accurate Board-Ready Quantum Readiness Dashboard
 
-This version modifies RBI CBOM to present reports in the executive style of the attached HTML dashboard.
+This version fixes inaccurate TLS version detection, especially the common issue where TLS 1.3 sessions are incorrectly shown as TLS 1.2.
 
-## Executive/board features
+## Accuracy improvements
 
-- Large board-ready hero section
+- Uses `tshark -T json` instead of only flat field extraction.
+- Reads negotiated TLS 1.3 from the ServerHello `supported_versions` extension.
+- Treats `tls.handshake.version` as a legacy compatibility field, not final negotiated TLS version.
+- Extracts key-share / named-group data when visible.
+- Detects PQ/hybrid indicators such as ML-KEM / Kyber / hybrid key-share groups.
+- Treats classical ECDHE / X25519 / P-256 / RSA / DHE / ECDSA as Shor-vulnerable.
+- Separates TLS security from quantum readiness.
+- Labels low-confidence and incomplete-handshake cases.
+
+## Board-ready UI
+
 - Executive KPI cards
-- Board-level risk narrative
+- Quantum readiness gauge
+- Quantum posture donut chart
+- Protocol distribution chart
 - Evidence-backed findings cards
-- CBOM inventory table
-- Observed TLS flows
-- Compliance mapping for CISO/audit discussion
-- Quantum remediation roadmap
-- Parser log and limitations section
-- Board-ready downloadable HTML report
-- JSON, CBOM CSV, and Compliance CSV exports
-
-## Accuracy model
-
-- TLS 1.3 is not automatically treated as quantum-safe.
-- Classical ECDHE / X25519 / secp256r1 / RSA / DHE / ECDSA are treated as Shor-vulnerable.
-- AES-256 / SHA-384+ are treated as having stronger post-quantum symmetric margin.
-- PQC-safe status is assigned only where hybrid/PQC algorithms are actually observed.
-- Missing key-share or incomplete handshakes are labelled with lower confidence or manual validation.
+- Executive CBOM table
+- TLS evidence table
+- Compliance mapping
+- Recommendations
+- Parser log and limitations
+- Board-ready HTML export
 
 ## Run with Docker
 
