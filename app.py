@@ -32,6 +32,103 @@ st.markdown("""
 div[data-testid="stFileUploader"]{border:2px dashed #cbd5e1;border-radius:22px;padding:18px;background:#f8fafc}
 .stTabs [data-baseweb="tab-list"]{gap:8px;background:rgba(255,255,255,.72);border:1px solid var(--line);padding:8px;border-radius:18px}.stTabs [data-baseweb="tab"]{border-radius:14px;font-weight:800}
 @media(max-width:1000px){.heroTop,.two,.three,.grid4,.findings,.road{grid-template-columns:1fr}.hero h1{font-size:34px}.kpis{grid-template-columns:1fr}}
+
+.boardSection{
+  background:#ffffff;
+  border:1px solid #e2e8f0;
+  border-radius:30px;
+  padding:26px;
+  margin:24px 0;
+  box-shadow:0 10px 28px rgba(15,23,42,.05);
+}
+.boardSection h2{
+  font-size:24px;
+  margin:0;
+  color:#0f172a;
+  letter-spacing:-.45px;
+}
+.boardSection .lead{
+  margin:8px 0 18px;
+  color:#64748b;
+  line-height:1.6;
+  font-size:14px;
+}
+.insightGrid{
+  display:grid;
+  grid-template-columns:repeat(3,1fr);
+  gap:14px;
+  margin:14px 0 20px;
+}
+.insight{
+  background:#f8fafc;
+  border:1px solid #e2e8f0;
+  border-radius:20px;
+  padding:16px;
+}
+.insight small{
+  display:block;
+  color:#64748b;
+  text-transform:uppercase;
+  letter-spacing:.06em;
+  font-weight:900;
+  font-size:11px;
+}
+.insight b{
+  display:block;
+  margin-top:7px;
+  font-size:18px;
+  color:#0f172a;
+}
+.cleanTableWrap{
+  border:1px solid #e2e8f0;
+  border-radius:22px;
+  overflow:hidden;
+  background:white;
+}
+.cleanTableWrap div[data-testid="stDataFrame"]{
+  border-radius:22px;
+}
+.sectionDivider{
+  height:1px;
+  background:#e2e8f0;
+  margin:18px 0;
+}
+.roadGrid{
+  display:grid;
+  grid-template-columns:repeat(3,1fr);
+  gap:16px;
+}
+.roadCard{
+  background:#ffffff;
+  border:1px solid #e2e8f0;
+  border-radius:24px;
+  padding:20px;
+  box-shadow:0 6px 18px rgba(15,23,42,.04);
+}
+.roadCard h3{
+  margin:12px 0 8px;
+  color:#0f172a;
+}
+.roadCard ul{
+  margin:10px 0 0;
+  padding-left:20px;
+  color:#475569;
+  line-height:1.55;
+  font-size:13px;
+}
+.tableNote{
+  background:#eff6ff;
+  border:1px solid #bfdbfe;
+  color:#1e3a8a;
+  border-radius:16px;
+  padding:12px 14px;
+  font-size:13px;
+  margin-bottom:14px;
+}
+@media(max-width:1000px){
+  .insightGrid,.roadGrid{grid-template-columns:1fr}
+}
+
 </style>
 """, unsafe_allow_html=True)
 
@@ -496,51 +593,286 @@ st.markdown(f"""<div class="grid4"><div class="metric"><div class="label">Quantu
 st.markdown(f"""<div class="two"><div class="card dark"><h3>Executive Assessment</h3><p>TLS 1.3 is used with modern protocol security. The selected cipher suite is {s['Cipher Suite']}. The final negotiated key exchange is {s['Key Exchange']}. The client appears to offer a hybrid post-quantum key share, but the final session does not show post-quantum or hybrid key exchange. Therefore, the endpoint should not be treated as fully quantum-safe based on this PCAP.</p><div class="kpis"><div class="kpi"><small>Target</small><strong>{s['Target']}</strong></div><div class="kpi"><small>Server IP</small><strong>{s['Server IP']}</strong></div><div class="kpi"><small>TLS Sessions</small><strong>{s['TLS Sessions']}</strong></div></div></div><div class="card risk"><h3>Board-Level Risk</h3><p>The endpoint may be secure by current classical TLS standards, but it is not fully quantum-safe because the final negotiated key exchange is classical or not PQ-observable.</p>{badge('Harvest-now-decrypt-later risk present')}</div></div>""", unsafe_allow_html=True)
 
 # Visuals
-c1,c2,c3=st.columns(3)
-with c1:
-    fig=go.Figure(go.Indicator(mode="gauge+number",value=s["Quantum Readiness Score"],title={"text":"Quantum Readiness Score"},gauge={"axis":{"range":[0,100]},"bar":{"color":"#2563eb"},"steps":[{"range":[0,40],"color":"#fef2f2"},{"range":[40,75],"color":"#fffbeb"},{"range":[75,100],"color":"#ecfdf5"}]}))
-    fig.update_layout(height=290,margin=dict(l=20,r=20,t=50,b=20),paper_bgcolor="rgba(0,0,0,0)")
-    st.plotly_chart(fig,use_container_width=True)
-with c2:
-    fdf=pd.DataFrame(report["findings"][:6])
-    fig=px.pie(fdf,names="Evidence Type",hole=.58,title="Evidence Labels")
-    fig.update_layout(height=290,paper_bgcolor="rgba(0,0,0,0)")
-    st.plotly_chart(fig,use_container_width=True)
-with c3:
-    rdf=pd.DataFrame(report["report_cbom"])
-    fig=px.bar(rdf["Evidence Type"].value_counts().reset_index(),x="Evidence Type",y="count",text="count",title="CBOM Evidence Types")
-    fig.update_layout(height=290,paper_bgcolor="rgba(0,0,0,0)")
-    st.plotly_chart(fig,use_container_width=True)
 
-st.markdown('<div class="sectionHead"><div><h2>Evidence-Backed Findings</h2><p class="desc">Every claim is labelled as Observed, Inferred, Risk Indicator, or Requires Manual Validation.</p></div></div>', unsafe_allow_html=True)
-cards=""
-for f in report["findings"][:6]:
-    cards+=f"""<div class="finding"><div class="findingTop">{badge(f['Evidence Type'])}{badge(f['Confidence'])}</div><div class="title">{f['Finding']}</div><div class="value">{f['Value']}</div><div class="detail">{f['Detail']}</div><div class="foot"><span>Status: {f['Status']}</span><span>Confidence: {f['Confidence']}</span></div></div>"""
-st.markdown(f"<div class='findings'>{cards}</div>",unsafe_allow_html=True)
+# Board-style sections without chart clutter or tab layout
 
-tabs=st.tabs(["Report CBOM","Observed TLS Flows","Compliance Mapping","Roadmap","Evidence + Logs","Exports"])
-with tabs[0]:
-    st.markdown("### Cryptographic Bill of Materials")
-    st.dataframe(pd.DataFrame(report["report_cbom"]),use_container_width=True,hide_index=True)
-    st.markdown("### Technical CBOM")
-    st.dataframe(pd.DataFrame(report["cbom"]),use_container_width=True,hide_index=True)
-with tabs[1]:
-    for i,fl in enumerate(report["flows"],1):
-        st.markdown(f"""<div class="flow"><b>Flow {i}</b> {badge(fl['TLS'])}<p><code>{fl['Source']} → {fl['Destination']}</code></p><p class="muted">SNI: <b>{fl['SNI']}</b> · Cipher: <b>{fl['Cipher']}</b> · KEX: <b>{fl['KEX']}</b></p></div>""",unsafe_allow_html=True)
-with tabs[2]:
-    st.dataframe(pd.DataFrame(report["compliance"]),use_container_width=True,hide_index=True)
-with tabs[3]:
-    st.markdown('<div class="road">'+"".join([f"<div class='card'><span class='badge bblue'>{x['Phase']}</span><h3 style='margin-top:14px'>{x['Title']}</h3><ul>"+''.join([f'<li>{a.strip()}</li>' for a in x['Actions'].split(';')])+"</ul></div>" for x in report["roadmap"]])+"</div>",unsafe_allow_html=True)
-with tabs[4]:
-    st.dataframe(pd.DataFrame(report["evidence"]),use_container_width=True,hide_index=True)
-    st.markdown("### What This PCAP Cannot Prove Alone")
-    st.markdown(f"<div class='card warn'><p>{report['limitations'][0]}</p></div>",unsafe_allow_html=True)
-    st.markdown("### Parser Log")
-    st.markdown(f"<div class='console'>{chr(10).join(report['parser_logs'])}</div>",unsafe_allow_html=True)
-with tabs[5]:
-    st.download_button("Download Board-Ready HTML Report",html_report(report),"rbi_cbom_board_report.html","text/html")
-    st.download_button("Download Full JSON Report",json.dumps(report,indent=2),"rbi_cbom_report.json","application/json")
-    st.download_button("Download Report CBOM CSV",pd.DataFrame(report["report_cbom"]).to_csv(index=False),"rbi_cbom_report.csv","text/csv")
-    st.download_button("Download Technical CBOM CSV",pd.DataFrame(report["cbom"]).to_csv(index=False),"rbi_cbom_technical.csv","text/csv")
+def first_existing_cols(df, cols):
+    return [c for c in cols if c in df.columns]
+
+cbom_df = pd.DataFrame(report.get("cbom", []))
+findings_df = pd.DataFrame(report.get("findings", []))
+flows_df = pd.DataFrame(report.get("flows", []))
+compliance_df = pd.DataFrame(report.get("compliance", []))
+recommendations_df = pd.DataFrame(report.get("recommendations", []))
+evidence_df = pd.DataFrame(report.get("evidence", []))
+
+# -------------------------
+# Evidence-backed findings
+# -------------------------
+st.markdown('<div class="sectionHead"><div><h2>Evidence-Backed Findings</h2><p class="desc">Board-level findings with evidence type, confidence, business relevance, and remediation context.</p></div></div>', unsafe_allow_html=True)
+
+cards = ""
+if not findings_df.empty:
+    for _, f in findings_df.head(6).iterrows():
+        cards += f"""
+        <div class='finding'>
+          <div class='findingTop'>{badge(f.get('Evidence Type',''))}{badge(f.get('Confidence',''))}</div>
+          <div class='title'>{f.get('Finding','')}</div>
+          <div class='value'>{f.get('Value','')}</div>
+          <div class='detail'>{f.get('Detail','')}</div>
+          <div class='foot'><span>{f.get('Status','')}</span><span>{f.get('Evidence ID','')}</span></div>
+        </div>
+        """
+else:
+    cards = "<div class='card'><b>No high-risk findings from parsed evidence.</b><p class='muted'>This does not prove full compliance or full PQC readiness.</p></div>"
+st.markdown(f"<div class='findings'>{cards}</div>", unsafe_allow_html=True)
+
+# -------------------------
+# Report CBOM
+# -------------------------
+st.markdown("""
+<div class="boardSection">
+  <h2>Report CBOM</h2>
+  <p class="lead">Executive-friendly Cryptographic Bill of Materials showing only the most decision-relevant evidence from the PCAP.</p>
+  <div class="insightGrid">
+    <div class="insight"><small>Primary TLS Version</small><b>{tls}</b></div>
+    <div class="insight"><small>Primary Cipher Suite</small><b>{cipher}</b></div>
+    <div class="insight"><small>Final Key Exchange</small><b>{kex}</b></div>
+  </div>
+</div>
+""".format(
+    tls=s.get("TLS Version", "Not observable"),
+    cipher=s.get("Cipher Suite", "Not observable"),
+    kex=s.get("Key Exchange", "Not observable"),
+), unsafe_allow_html=True)
+
+# Prefer report_cbom if available; otherwise generate an executive CBOM from technical cbom
+if "report_cbom" in report and report["report_cbom"]:
+    report_cbom_df = pd.DataFrame(report["report_cbom"])
+else:
+    rows = []
+    if not cbom_df.empty:
+        primary = cbom_df.iloc[0].to_dict()
+        rows = [
+            {"Asset": "Protocol", "Value": primary.get("TLS Version", "Not observable"), "Evidence Type": primary.get("Evidence Type", "Observed"), "Confidence": primary.get("Confidence", ""), "Executive Note": "TLS version from visible handshake evidence."},
+            {"Asset": "SNI", "Value": primary.get("SNI", "Not visible"), "Evidence Type": "Observed" if primary.get("SNI") else "Requires Manual Validation", "Confidence": "High" if primary.get("SNI") else "Low", "Executive Note": "Server name indication from ClientHello where visible."},
+            {"Asset": "Server IP", "Value": str(primary.get("Destination", "")).split(":")[0], "Evidence Type": "Observed", "Confidence": "High", "Executive Note": "Destination endpoint in capture."},
+            {"Asset": "Cipher Suite", "Value": primary.get("Cipher Suite", "Not observable"), "Evidence Type": "Observed", "Confidence": primary.get("Confidence", ""), "Executive Note": "Selected by ServerHello."},
+            {"Asset": "Symmetric Encryption", "Value": primary.get("Symmetric Encryption", "Not observable"), "Evidence Type": "Inferred from cipher", "Confidence": "High", "Executive Note": "Symmetric encryption inferred from TLS cipher suite."},
+            {"Asset": "Hash / KDF", "Value": primary.get("Hash / KDF", "Not observable"), "Evidence Type": "Inferred from cipher", "Confidence": "High", "Executive Note": "Hash/KDF family inferred from TLS cipher suite."},
+            {"Asset": "Key Exchange", "Value": primary.get("Key Exchange", "Not observable"), "Evidence Type": primary.get("Evidence Type", "Observed"), "Confidence": primary.get("Confidence", ""), "Executive Note": "Final key exchange determines quantum readiness."},
+            {"Asset": "Client Offered PQ Hybrid", "Value": primary.get("Client Offered PQ/Hybrid", "No"), "Evidence Type": "Observed / Strongly Inferred" if primary.get("Client Offered PQ/Hybrid") == "Yes" else "Observed", "Confidence": "Medium-High", "Executive Note": "Client offer alone does not prove final PQ security."},
+            {"Asset": "Server Selected PQ Hybrid", "Value": "Yes" if "Hybrid" in str(primary.get("Quantum Readiness", "")) else "No", "Evidence Type": "Observed", "Confidence": "High", "Executive Note": "Final negotiated key exchange determines session quantum-readiness."},
+            {"Asset": "Certificate Chain", "Value": "Not visible from encrypted TLS 1.3 handshake", "Evidence Type": "Requires Manual Validation", "Confidence": "High", "Executive Note": "Use TLS key logs or external certificate scan for certificate assurance."},
+        ]
+    report_cbom_df = pd.DataFrame(rows)
+
+st.markdown('<div class="tableNote">Readable board table: sorted by asset, evidence type, confidence, and executive note. Technical packet details are kept in the Evidence section.</div>', unsafe_allow_html=True)
+st.dataframe(
+    report_cbom_df,
+    use_container_width=True,
+    hide_index=True,
+    column_config={
+        "Asset": st.column_config.TextColumn("Asset", width="medium"),
+        "Value": st.column_config.TextColumn("Value", width="medium"),
+        "Evidence Type": st.column_config.TextColumn("Evidence Type", width="small"),
+        "Confidence": st.column_config.TextColumn("Confidence", width="small"),
+        "Executive Note": st.column_config.TextColumn("Executive Note", width="large"),
+    }
+)
+
+# -------------------------
+# Observed TLS Flows
+# -------------------------
+st.markdown("""
+<div class="boardSection">
+  <h2>Observed TLS Flows</h2>
+  <p class="lead">Handshake-level view of HTTPS sessions visible in the PCAP. This is the evidence base for TLS version, cipher suite, SNI, and key-exchange claims.</p>
+</div>
+""", unsafe_allow_html=True)
+
+if not flows_df.empty:
+    flow_cols = first_existing_cols(flows_df, ["Source", "Destination", "SNI", "TLS", "Version Evidence", "Cipher", "KEX", "Quantum"])
+    st.dataframe(
+        flows_df[flow_cols],
+        use_container_width=True,
+        hide_index=True,
+        column_config={
+            "Source": st.column_config.TextColumn("Source", width="medium"),
+            "Destination": st.column_config.TextColumn("Destination", width="medium"),
+            "SNI": st.column_config.TextColumn("SNI", width="medium"),
+            "TLS": st.column_config.TextColumn("TLS", width="small"),
+            "Version Evidence": st.column_config.TextColumn("Version Evidence", width="large"),
+            "Cipher": st.column_config.TextColumn("Cipher", width="large"),
+            "KEX": st.column_config.TextColumn("KEX", width="medium"),
+            "Quantum": st.column_config.TextColumn("Quantum", width="medium"),
+        }
+    )
+else:
+    st.info("No TLS flows parsed. Capture may not include visible ClientHello/ServerHello records.")
+
+# -------------------------
+# Compliance Mapping
+# -------------------------
+st.markdown("""
+<div class="boardSection">
+  <h2>Compliance Mapping</h2>
+  <p class="lead">CISO, audit, and regulatory conversation view. These are evidence-backed indicators, not formal certification.</p>
+</div>
+""", unsafe_allow_html=True)
+
+if not compliance_df.empty:
+    comp_cols = first_existing_cols(compliance_df, ["Framework", "Status", "Evidence Type", "Executive Note"])
+    st.dataframe(
+        compliance_df[comp_cols],
+        use_container_width=True,
+        hide_index=True,
+        column_config={
+            "Framework": st.column_config.TextColumn("Framework", width="medium"),
+            "Status": st.column_config.TextColumn("Status", width="medium"),
+            "Evidence Type": st.column_config.TextColumn("Evidence Type", width="small"),
+            "Executive Note": st.column_config.TextColumn("Executive Note", width="large"),
+        }
+    )
+
+if not findings_df.empty:
+    st.markdown("#### Policy Findings")
+    finding_cols = first_existing_cols(findings_df, ["Finding", "Value", "Status", "Evidence Type", "Confidence", "Detail", "Endpoint"])
+    st.dataframe(
+        findings_df[finding_cols],
+        use_container_width=True,
+        hide_index=True,
+        column_config={
+            "Finding": st.column_config.TextColumn("Finding", width="medium"),
+            "Value": st.column_config.TextColumn("Value", width="medium"),
+            "Status": st.column_config.TextColumn("Status", width="small"),
+            "Evidence Type": st.column_config.TextColumn("Evidence Type", width="small"),
+            "Confidence": st.column_config.TextColumn("Confidence", width="small"),
+            "Detail": st.column_config.TextColumn("Detail", width="large"),
+            "Endpoint": st.column_config.TextColumn("Endpoint", width="medium"),
+        }
+    )
+
+# -------------------------
+# Roadmap
+# -------------------------
+st.markdown("""
+<div class="boardSection">
+  <h2>Quantum Remediation Roadmap</h2>
+  <p class="lead">Staged roadmap for moving from classical TLS readiness to hybrid/PQ transition readiness.</p>
+</div>
+""", unsafe_allow_html=True)
+
+road_cards = """
+<div class="roadGrid">
+  <div class="roadCard">
+    <span class="badge bblue">0–30 Days</span>
+    <h3>Evidence Baseline</h3>
+    <ul>
+      <li>Run repeated PCAP scans from multiple clients and networks.</li>
+      <li>Add TLS key-log supported certificate validation for controlled tests.</li>
+      <li>Create endpoint-level CBOM inventory for RBI-facing domains.</li>
+    </ul>
+  </div>
+  <div class="roadCard">
+    <span class="badge bblue">30–90 Days</span>
+    <h3>Crypto-Agility Readiness</h3>
+    <ul>
+      <li>Track RSA, ECDSA, ECDHE, P-256, P-384, X25519, ML-KEM, and hybrid usage.</li>
+      <li>Define internal policy for post-quantum transition readiness.</li>
+      <li>Add server-side support checks for hybrid TLS key exchange.</li>
+    </ul>
+  </div>
+  <div class="roadCard">
+    <span class="badge bblue">90–180 Days</span>
+    <h3>Hybrid PQ Pilot</h3>
+    <ul>
+      <li>Pilot X25519 + ML-KEM-768 hybrid key exchange in controlled environments.</li>
+      <li>Measure latency, compatibility, and failure rates.</li>
+      <li>Prepare board-level quantum-risk reporting and exception workflows.</li>
+    </ul>
+  </div>
+</div>
+"""
+st.markdown(road_cards, unsafe_allow_html=True)
+
+if not recommendations_df.empty:
+    st.markdown("#### Action Register")
+    rec_cols = first_existing_cols(recommendations_df, ["Timeline", "Priority", "Recommendation", "Executive Action", "Technical Action", "Verification"])
+    st.dataframe(
+        recommendations_df[rec_cols],
+        use_container_width=True,
+        hide_index=True,
+        column_config={
+            "Timeline": st.column_config.TextColumn("Timeline", width="small"),
+            "Priority": st.column_config.TextColumn("Priority", width="small"),
+            "Recommendation": st.column_config.TextColumn("Recommendation", width="medium"),
+            "Executive Action": st.column_config.TextColumn("Executive Action", width="large"),
+            "Technical Action": st.column_config.TextColumn("Technical Action", width="large"),
+            "Verification": st.column_config.TextColumn("Verification", width="large"),
+        }
+    )
+
+# -------------------------
+# Evidence + Logs
+# -------------------------
+st.markdown("""
+<div class="boardSection">
+  <h2>Evidence + Logs</h2>
+  <p class="lead">Technical evidence, parser notes, and limitations for validation. Keep this section for audit support and engineering follow-up.</p>
+</div>
+""", unsafe_allow_html=True)
+
+ev_col, log_col = st.columns([2, 1])
+with ev_col:
+    if not evidence_df.empty:
+        ev_cols = first_existing_cols(evidence_df, ["Evidence ID", "Source", "Destination", "Protocol", "Observed Value", "Defensibility", "Confidence", "PCAP SHA256"])
+        st.dataframe(
+            evidence_df[ev_cols],
+            use_container_width=True,
+            hide_index=True,
+            column_config={
+                "Evidence ID": st.column_config.TextColumn("Evidence ID", width="small"),
+                "Source": st.column_config.TextColumn("Source", width="medium"),
+                "Destination": st.column_config.TextColumn("Destination", width="medium"),
+                "Protocol": st.column_config.TextColumn("Protocol", width="small"),
+                "Observed Value": st.column_config.TextColumn("Observed Value", width="large"),
+                "Defensibility": st.column_config.TextColumn("Defensibility", width="small"),
+                "Confidence": st.column_config.TextColumn("Confidence", width="small"),
+                "PCAP SHA256": st.column_config.TextColumn("PCAP SHA256", width="large"),
+            }
+        )
+    else:
+        st.info("No evidence records generated.")
+with log_col:
+    st.markdown("#### Parser Log")
+    st.markdown(f"<div class='console'>{chr(10).join(report.get('parser_logs', []))}</div>", unsafe_allow_html=True)
+
+    st.markdown("#### What This PCAP Cannot Prove Alone")
+    for item in report.get("limitations", []):
+        st.write("- " + item)
+
+# -------------------------
+# Exports
+# -------------------------
+st.markdown("""
+<div class="boardSection">
+  <h2>Exports</h2>
+  <p class="lead">Download the board-ready report or machine-readable evidence for audit, governance, and technical follow-up.</p>
+</div>
+""", unsafe_allow_html=True)
+
+html = html_report(report)
+e1, e2, e3, e4 = st.columns(4)
+with e1:
+    st.download_button("Board HTML Report", html, "rbi_cbom_board_report.html", "text/html", use_container_width=True)
+with e2:
+    st.download_button("Full JSON", json.dumps(report, indent=2), "rbi_cbom_report.json", "application/json", use_container_width=True)
+with e3:
+    st.download_button("Report CBOM CSV", report_cbom_df.to_csv(index=False), "rbi_cbom_report.csv", "text/csv", use_container_width=True)
+with e4:
+    st.download_button("Technical CBOM CSV", cbom_df.to_csv(index=False), "rbi_cbom_technical.csv", "text/csv", use_container_width=True)
+
+
 
 st.caption("RBI CBOM Dashboard · Built-in PCAP analysis · Use results as evidence indicators. Certificate validation and full compliance sign-off may require TLS secrets, external certificate scans, endpoint configuration review, and manual validation.")
