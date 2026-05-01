@@ -333,10 +333,284 @@ def analyze_source(uploaded,target):
     spdx={'spdxVersion':'SPDX-2.3-like','name':target,'documentNamespace':'https://rbi-cbom.local/spdx/'+str(uuid.uuid4()),'creationInfo':{'created':datetime.now().isoformat(),'creators':['Tool: RBI CBOM']},'packages':[{'name':r['Component'],'versionInfo':r['Version'],'supplier':'NOASSERTION','downloadLocation':'NOASSERTION','externalRefs':[{'referenceType':'purl','referenceLocator':r['purl-like ID']}],'sourceFile':r['Source File']} for r in sbom]}
     return {'summary':summary,'manifests':manifests,'sbom':sbom,'source_cbom':scbom,'source_findings':findings,'integrity':integrity,'standard_bom_json':standard,'spdx_like_json':spdx}
 
+
+def _html_escape(x):
+    import html
+    return html.escape(str(x if x is not None else ""))
+
+def _board_table(rows, columns=None):
+    if not rows:
+        return "<p class='muted'>No records.</p>"
+    if isinstance(rows, dict):
+        rows = [rows]
+    if columns is None:
+        columns = list(rows[0].keys())
+    head = "".join("<th>{}</th>".format(_html_escape(c)) for c in columns)
+    body = []
+    for r in rows:
+        cells = "".join("<td>{}</td>".format(_html_escape(r.get(c, ""))) for c in columns)
+        body.append("<tr>{}</tr>".format(cells))
+    return "<div class='tableWrap'><table><thead><tr>{}</tr></thead><tbody>{}</tbody></table></div>".format(head, "".join(body))
+
+def _board_css():
+    return """
+    <style>
+    :root{--bg:#f7fafc;--card:#fff;--ink:#0f172a;--muted:#64748b;--line:#e2e8f0;--blue:#2563eb;--blue2:#eff6ff;--green2:#ecfdf5;--amber2:#fffbeb;--red2:#fef2f2;--violet2:#f5f3ff;--shadow:0 16px 40px rgba(15,23,42,.08)}
+    body{margin:0;background:linear-gradient(135deg,#f8fafc,#eef6ff 55%,#f7fafc);font-family:Inter,Arial,sans-serif;color:var(--ink)}
+    .wrap{max-width:1220px;margin:auto;padding:28px}
+    .hero{background:rgba(255,255,255,.94);border:1px solid var(--line);border-radius:34px;box-shadow:var(--shadow);overflow:hidden}
+    .heroTop{padding:34px;background:radial-gradient(circle at top right,#dbeafe,transparent 38%),linear-gradient(135deg,#fff,#f8fafc);border-bottom:1px solid var(--line)}
+    h1{font-size:46px;line-height:1.02;margin:12px 0;letter-spacing:-1.5px}
+    h2{font-size:25px;margin:34px 0 14px;letter-spacing:-.5px}
+    h3{font-size:20px;margin:0 0 12px}
+    p{line-height:1.58}
+    .sub{font-size:16px;line-height:1.65;color:var(--muted);max-width:900px}
+    .badge{display:inline-flex;border-radius:999px;border:1px solid var(--line);padding:7px 11px;font-size:12px;font-weight:800;background:#f8fafc;color:#334155;margin:2px}
+    .bblue{background:#eff6ff;color:#1d4ed8;border-color:#bfdbfe}.bgreen{background:#ecfdf5;color:#047857;border-color:#a7f3d0}.bamber{background:#fffbeb;color:#b45309;border-color:#fde68a}.bred{background:#fef2f2;color:#b91c1c;border-color:#fecaca}.bviolet{background:#f5f3ff;color:#6d28d9;border-color:#ddd6fe}
+    .grid4{display:grid;grid-template-columns:repeat(4,1fr);gap:18px;padding:28px}
+    .metric{background:white;border:1px solid var(--line);border-radius:26px;padding:22px;box-shadow:0 6px 18px rgba(15,23,42,.04)}
+    .metric small{display:block;font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:#64748b;font-weight:900}
+    .metric b{display:block;font-size:23px;margin-top:8px;word-break:break-word}
+    .section{padding:0 28px 28px}
+    .two{display:grid;grid-template-columns:2fr 1fr;gap:18px}
+    .three{display:grid;grid-template-columns:repeat(3,1fr);gap:16px}
+    .card{background:white;border:1px solid var(--line);border-radius:28px;padding:24px;box-shadow:0 8px 22px rgba(15,23,42,.04);margin-bottom:18px}
+    .dark{background:#020617;color:white}.dark p{color:#cbd5e1}
+    .risk{background:#fffbeb;border-color:#fde68a;color:#92400e}
+    .warn{background:#fef2f2;border-color:#fecaca;color:#991b1b}
+    .finding{background:white;border:1px solid var(--line);border-radius:24px;padding:18px;min-height:155px}
+    .title{font-size:13px;color:#64748b;font-weight:900}.value{font-size:18px;font-weight:950;margin-top:6px;color:#0f172a}.detail{font-size:13px;line-height:1.55;color:#475569;margin-top:12px}
+    .tableWrap{border:1px solid var(--line);border-radius:24px;overflow:auto;background:white;box-shadow:0 8px 22px rgba(15,23,42,.04)}
+    table{width:100%;border-collapse:collapse;background:white;font-size:12px}
+    th{background:#f1f5f9;color:#475569;text-align:left;text-transform:uppercase;font-size:11px;letter-spacing:.08em;padding:14px}
+    td{border-top:1px solid #f1f5f9;padding:13px;vertical-align:top}
+    .console{font-family:monospace;background:#020617;color:#d1fae5;border-radius:20px;padding:16px;white-space:pre-wrap;font-size:12px;line-height:1.45}
+    .muted{color:#64748b}
+    @media print{body{background:white}.wrap{padding:0}.hero,.card,.metric,.finding{box-shadow:none}.section{break-inside:avoid}}
+    @media(max-width:900px){.grid4,.two,.three{grid-template-columns:1fr}h1{font-size:34px}}
+    </style>
+    """
+
 def html_report(report):
-    def table(rows): return pd.DataFrame(rows).to_html(index=False,escape=False) if rows else '<p>No records.</p>'
-    s=report.get('summary',{})
-    return f"<html><body><h1>RBI CBOM Board Report</h1><h2>Summary</h2>{pd.DataFrame(s.items(),columns=['Metric','Value']).to_html(index=False)}<h2>Priority Definition</h2>{priority_definition().to_html(index=False)}<h2>CBOM</h2>{table(report.get('report_cbom') or report.get('cbom',[]))}<h2>Findings</h2>{table(report.get('findings',[]))}<h2>Roadmap</h2>{table(report.get('roadmap',[]))}</body></html>"
+    s = report.get("summary", {})
+    doc = report.get("document", {})
+    parser_log = "\n".join(str(x) for x in report.get("parser_logs", []))
+    limitations = "".join("<li>{}</li>".format(_html_escape(x)) for x in report.get("limitations", []))
+
+    priority = s.get("Overall Priority", s.get("Overall Risk", "Unknown"))
+    posture = s.get("Quantum Posture", s.get("Quantum Readiness", "Unknown"))
+    tls_version = s.get("TLS Version", "Not observable")
+    cipher = s.get("Cipher Suite", "Not observable")
+    kex = s.get("Key Exchange", "Not observable")
+
+    findings = report.get("findings", [])[:6]
+    if findings:
+        finding_cards = "".join(
+            "<div class='finding'><span class='badge bamber'>{priority}</span><div class='title'>{finding}</div><div class='value'>{value}</div><div class='detail'>{detail}</div></div>".format(
+                priority=_html_escape(f.get("Priority", f.get("Status", ""))),
+                finding=_html_escape(f.get("Finding", "")),
+                value=_html_escape(f.get("Value", "")),
+                detail=_html_escape(f.get("Detail", f.get("Action", "")))
+            )
+            for f in findings
+        )
+    else:
+        finding_cards = "<div class='card'><b>No high-risk findings generated from parsed evidence.</b><p class='muted'>This does not prove full compliance or full PQC readiness.</p></div>"
+
+    html_doc = """
+    <!doctype html><html><head><meta charset="utf-8"><title>RBI CBOM Board Report</title>{css}</head>
+    <body><div class="wrap"><main class="hero">
+      <div class="heroTop">
+        <span class="badge bblue">RBI CBOM</span><span class="badge bviolet">Board Report</span><span class="badge">PCAP Evidence Mode</span>
+        <h1>RBI CBOM Quantum Readiness Dashboard</h1>
+        <p class="sub">Executive board-ready report for TLS discovery, cryptographic bill of materials, compliance mapping, and harvest-now-decrypt-later quantum-risk assessment from uploaded PCAP files.</p>
+      </div>
+
+      <div class="grid4">
+        <div class="metric"><small>Quantum Posture</small><b>{posture}</b><span class="badge bamber">{priority}</span></div>
+        <div class="metric"><small>TLS Version</small><b>{tls_version}</b><span class="badge bgreen">Observed</span></div>
+        <div class="metric"><small>Cipher Suite</small><b style="font-size:16px">{cipher}</b><span class="badge bgreen">Selected by Server</span></div>
+        <div class="metric"><small>Key Exchange</small><b>{kex}</b><span class="badge bamber">Final KEX</span></div>
+      </div>
+
+      <section class="section">
+        <div class="two">
+          <div class="card dark">
+            <h3>Executive Assessment</h3>
+            <p>RBI CBOM analyzed the uploaded PCAP and identified {tls_sessions} TLS session(s). The final posture is <b>{posture}</b> with <b>{priority}</b>. Priority is based on final selected cryptographic evidence, not a changing score.</p>
+          </div>
+          <div class="card risk">
+            <h3>Board-Level Risk</h3>
+            <p>Classical ECDHE, X25519, P-256, RSA, DHE, and ECDSA remain quantum-vulnerable unless the server actually negotiates hybrid/PQC key exchange.</p>
+            <span class="badge bamber">Harvest-now-decrypt-later risk review</span>
+          </div>
+        </div>
+
+        <h2>Quantum Priority Definition</h2>
+        {priority_table}
+
+        <h2>Evidence-Backed Findings</h2>
+        <div class="three">{finding_cards}</div>
+
+        <h2>Cryptographic Bill of Materials</h2>
+        {report_cbom_table}
+
+        <h2>Technical CBOM Inventory</h2>
+        {technical_cbom_table}
+
+        <h2>Observed TLS Flows</h2>
+        {flows_table}
+
+        <h2>Compliance Mapping</h2>
+        {compliance_table}
+
+        <h2>Quantum Remediation Roadmap</h2>
+        {roadmap_table}
+
+        <div class="card warn">
+          <h3>What This PCAP Cannot Prove Alone</h3>
+          <p>Certificate chain, certificate expiry, SAN validation, issuer, signature algorithm, and weak certificate checks may require TLS key logs or external certificate scan integration.</p>
+        </div>
+
+        <h2>Evidence Appendix</h2>
+        {evidence_table}
+
+        <h2>Document Control</h2>
+        {doc_table}
+
+        <h2>Parser Log</h2>
+        <div class="console">{parser_log}</div>
+
+        <h2>Limitations</h2>
+        <ul>{limitations}</ul>
+
+        <p class="muted" style="font-size:12px">RBI CBOM Dashboard · Use results as evidence indicators. Full compliance sign-off may require TLS secrets, external certificate scans, endpoint configuration review, and manual validation.</p>
+      </section>
+    </main></div></body></html>
+    """.format(
+        css=_board_css(),
+        posture=_html_escape(posture),
+        priority=_html_escape(priority),
+        tls_version=_html_escape(tls_version),
+        cipher=_html_escape(cipher),
+        kex=_html_escape(kex),
+        tls_sessions=_html_escape(s.get("TLS Sessions", len(report.get("cbom", [])))),
+        priority_table=priority_definition().to_html(index=False, escape=False),
+        finding_cards=finding_cards,
+        report_cbom_table=_board_table(report.get("report_cbom") or report.get("cbom", [])),
+        technical_cbom_table=_board_table(report.get("cbom", [])),
+        flows_table=_board_table(report.get("flows", [])),
+        compliance_table=_board_table(report.get("compliance", [])),
+        roadmap_table=_board_table(report.get("roadmap", [])),
+        evidence_table=_board_table(report.get("evidence", [])),
+        doc_table=_board_table([doc]) if doc else "<p>No document control data.</p>",
+        parser_log=_html_escape(parser_log),
+        limitations=limitations
+    )
+    return html_doc
+
+def source_html_report(source_report):
+    s = source_report.get("summary", {})
+    target = s.get("Target", "Source Repository")
+    critical = s.get("Critical Crypto Findings", 0)
+    qv = s.get("Quantum-Vulnerable Findings", 0)
+    posture = "High Crypto Risk" if critical else "Quantum Migration Required" if qv else "Review / Monitor"
+
+    finding_rows = source_report.get("source_findings", [])[:6]
+    if finding_rows:
+        finding_cards = "".join(
+            "<div class='finding'><span class='badge bamber'>{priority}</span><div class='title'>{finding}</div><div class='value'>{status}</div><div class='detail'>{file}<br>{action}</div></div>".format(
+                priority=_html_escape(f.get("Priority", "")),
+                finding=_html_escape(f.get("Finding", "")),
+                status=_html_escape(f.get("Status", "")),
+                file=_html_escape(f.get("File", "")),
+                action=_html_escape(f.get("Action", ""))
+            )
+            for f in finding_rows
+        )
+    else:
+        finding_cards = "<div class='card'><b>No crypto findings were detected from source scanning.</b><p class='muted'>This does not prove the codebase is free from cryptographic usage.</p></div>"
+
+    manifest_rows = [{"Manifest": x} for x in source_report.get("manifests", [])]
+    parser_note = s.get("Parsing Notes", "")
+
+    html_doc = """
+    <!doctype html><html><head><meta charset="utf-8"><title>RBI CBOM Source Board Report</title>{css}</head>
+    <body><div class="wrap"><main class="hero">
+      <div class="heroTop">
+        <span class="badge bblue">RBI CBOM</span><span class="badge bviolet">Source SBOM + CBOM</span><span class="badge">Board Report</span>
+        <h1>RBI CBOM Source Code SBOM & CBOM Report</h1>
+        <p class="sub">Executive board-ready report for dependency SBOM, source-code cryptography CBOM, crypto-risk prioritization, and remediation planning.</p>
+      </div>
+
+      <div class="grid4">
+        <div class="metric"><small>Source Posture</small><b>{posture}</b><span class="badge bamber">Board Review</span></div>
+        <div class="metric"><small>Files Scanned</small><b>{files}</b><span class="badge bblue">Source</span></div>
+        <div class="metric"><small>SBOM Components</small><b>{components}</b><span class="badge bgreen">Dependencies</span></div>
+        <div class="metric"><small>Source CBOM Findings</small><b>{cbom_findings}</b><span class="badge bamber">Crypto</span></div>
+      </div>
+
+      <section class="section">
+        <div class="two">
+          <div class="card dark">
+            <h3>Executive Assessment</h3>
+            <p>RBI CBOM scanned <b>{files}</b> source file(s), identified <b>{components}</b> SBOM component(s), and found <b>{cbom_findings}</b> source-code cryptography finding(s) for <b>{target}</b>.</p>
+          </div>
+          <div class="card risk">
+            <h3>Board-Level Risk</h3>
+            <p>Deprecated algorithms require immediate remediation. Classical asymmetric cryptography such as RSA, ECDH, ECDSA, and Diffie-Hellman should be tracked for PQC migration readiness.</p>
+            <span class="badge bamber">{posture}</span>
+          </div>
+        </div>
+
+        <h2>Quantum Priority Definition</h2>
+        {priority_table}
+
+        <h2>Source Findings</h2>
+        <div class="three">{finding_cards}</div>
+
+        <h2>Source-Code SBOM</h2>
+        {sbom_table}
+
+        <h2>Source-Code CBOM</h2>
+        {source_cbom_table}
+
+        <h2>Manifest Files Detected</h2>
+        {manifest_table}
+
+        <h2>Source Remediation Roadmap</h2>
+        {roadmap_table}
+
+        <h2>BOM Integrity Manifest</h2>
+        {integrity_table}
+
+        <h2>Parser Notes</h2>
+        <div class="console">{parser_note}</div>
+
+        <p class="muted" style="font-size:12px">RBI CBOM Source Report · Static source analysis can miss dynamically generated dependencies, vendored binaries, encrypted files, and runtime-resolved cryptography.</p>
+      </section>
+    </main></div></body></html>
+    """.format(
+        css=_board_css(),
+        posture=_html_escape(posture),
+        files=_html_escape(s.get("Files Scanned", 0)),
+        components=_html_escape(s.get("SBOM Components", 0)),
+        cbom_findings=_html_escape(s.get("Source CBOM Findings", 0)),
+        target=_html_escape(target),
+        priority_table=priority_definition().to_html(index=False, escape=False),
+        finding_cards=finding_cards,
+        sbom_table=_board_table(source_report.get("sbom", [])),
+        source_cbom_table=_board_table(source_report.get("source_cbom", [])),
+        manifest_table=_board_table(manifest_rows),
+        roadmap_table=_board_table([
+            {"Phase": "0–30 Days", "Title": "Dependency Baseline", "Actions": "Validate manifests, generate SBOM, assign ownership for critical packages."},
+            {"Phase": "30–90 Days", "Title": "Crypto Inventory", "Actions": "Review source-code CBOM, remove deprecated algorithms, identify PQC migration candidates."},
+            {"Phase": "90–180 Days", "Title": "Secure Build Governance", "Actions": "Integrate SBOM/CBOM generation into CI/CD and attach integrity manifests to releases."}
+        ]),
+        integrity_table=_board_table([source_report.get("integrity", {})]),
+        parser_note=_html_escape(parser_note)
+    )
+    return html_doc
 
 # UI
 st.sidebar.title('🛡️ RBI CBOM')
@@ -387,6 +661,7 @@ with home_tabs[1]:
         with st_tabs[2]: st.dataframe(pd.DataFrame(sr['source_cbom']),use_container_width=True,hide_index=True)
         with st_tabs[3]: st.dataframe(pd.DataFrame(sr['source_findings']),use_container_width=True,hide_index=True)
         with st_tabs[4]:
+            st.download_button('Download Source Board HTML Report',source_html_report(sr),'rbi_cbom_source_board_report.html','text/html')
             st.download_button('Download Source SBOM CSV',pd.DataFrame(sr['sbom']).to_csv(index=False),'rbi_cbom_source_sbom.csv','text/csv')
             st.download_button('Download Source CBOM CSV',pd.DataFrame(sr['source_cbom']).to_csv(index=False),'rbi_cbom_source_cbom.csv','text/csv')
             st.download_button('Download Standard BOM JSON',json.dumps(sr['standard_bom_json'],indent=2),'rbi_cbom_standard_bom.json','application/json')

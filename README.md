@@ -24,3 +24,8 @@ streamlit run app.py
 docker build -t rbi-cbom .
 docker run --rm -p 8501:8501 rbi-cbom
 ```
+
+
+## v10 board-report patch
+- Restored PCAP Board HTML report to the earlier executive board-meeting format.
+- Added matching Source Code SBOM/CBOM Board HTML report export.
