@@ -288,7 +288,7 @@ def analyze_bytes(data, filename, meta):
         {"Phase":"30–90 Days","Title":"Crypto-Agility Readiness","Actions":"Track RSA, ECDSA, ECDHE, P-256, P-384, X25519, ML-KEM, and hybrid usage; define internal policy for PQ transition readiness; add server-side support checks for hybrid TLS key exchange."},
         {"Phase":"90–180 Days","Title":"Hybrid PQ Pilot","Actions":"Pilot X25519 + ML-KEM-768 hybrid key exchange in controlled environments; measure latency, compatibility and failure rates; prepare board-level quantum-risk reporting and exception workflows."}
     ]
-    return {"document":{"Tool Name":"RBI CBOM","Target Application":meta["target"],"Scan ID":str(uuid.uuid4()),"Assessment Date":datetime.now().strftime("%B %d, %Y"),"Classification":meta["classification"],"Scanner Version":"RBI CBOM PQC Scanner v6.0","Total Packets":len(packets),"PCAP SHA256":pcap_hash},"summary":{"Quantum Readiness":readiness,"Overall Risk":overall,"TLS Version":primary.get("TLS Version","Not observable"),"Cipher Suite":primary.get("Cipher Suite","Not observable"),"Key Exchange":primary.get("Key Exchange","Not observable"),"Server IP":primary.get("Destination","").split(":")[0] if primary else "Not observable","Target":primary.get("SNI",meta["target"]) if primary else meta["target"],"TLS Sessions":len(cbom),"Quantum Readiness":score,"Total Assets":len(report_cbom),"Quantum Vulnerable / Weakened":qv},"cbom":cbom,"report_cbom":report_cbom,"findings":findings,"flows":flows,"evidence":evidence,"algorithms":list(algos.values()),"compliance":compliance,"roadmap":roadmap,"parser_logs":logs+[f"TLS sessions identified: {len(cbom)}","TLS 1.3 accuracy rule: ServerHello supported_versions overrides legacy_version."],"limitations":["Certificate chain, certificate expiry, SAN validation, issuer, signature algorithm, and weak certificate checks are not directly visible when TLS 1.3 encrypts certificate messages. Add TLS key-log ingestion or external certificate scan integration for complete certificate assurance.","This dashboard analyzes only traffic present in the uploaded PCAP.","Compliance results are evidence indicators, not formal certification."]}
+    return {"document":{"Tool Name":"RBI CBOM","Target Application":meta["target"],"Scan ID":str(uuid.uuid4()),"Assessment Date":datetime.now().strftime("%B %d, %Y"),"Classification":meta["classification"],"Scanner Version":"RBI CBOM PQC Scanner v6.0","Total Packets":len(packets),"PCAP SHA256":pcap_hash},"summary":{"Quantum Readiness":readiness,"Overall Risk":overall,"TLS Version":primary.get("TLS Version","Not observable"),"Cipher Suite":primary.get("Cipher Suite","Not observable"),"Key Exchange":primary.get("Key Exchange","Not observable"),"Server IP":primary.get("Destination","").split(":")[0] if primary else "Not observable","Target":primary.get("SNI",meta["target"]) if primary else meta["target"],"TLS Sessions":len(cbom),"Total Assets":len(report_cbom),"Quantum Vulnerable / Weakened":qv},"cbom":cbom,"report_cbom":report_cbom,"findings":findings,"flows":flows,"evidence":evidence,"algorithms":list(algos.values()),"compliance":compliance,"roadmap":roadmap,"parser_logs":logs+[f"TLS sessions identified: {len(cbom)}","TLS 1.3 accuracy rule: ServerHello supported_versions overrides legacy_version."],"limitations":["Certificate chain, certificate expiry, SAN validation, issuer, signature algorithm, and weak certificate checks are not directly visible when TLS 1.3 encrypts certificate messages. Add TLS key-log ingestion or external certificate scan integration for complete certificate assurance.","This dashboard analyzes only traffic present in the uploaded PCAP.","Compliance results are evidence indicators, not formal certification."]}
 
 
 def ensure_quantum_roadmap(report):
@@ -357,6 +357,131 @@ def clean_board_report(report):
         if isinstance(report.get(key), list):
             report[key] = clean_board_records(report[key])
     return report
+
+
+
+def cyclonedx_cbom(report):
+    """Create a CycloneDX-style CBOM JSON from PCAP-derived crypto assets."""
+    now = datetime.utcnow().replace(microsecond=0).isoformat() + "Z"
+    doc = report.get("document", {})
+    serial = "urn:uuid:" + str(uuid.uuid4())
+    components = []
+    services = []
+    annotations = []
+    for idx, rec in enumerate(report.get("cbom", []), 1):
+        bom_ref = rec.get("CBOM ID") or f"crypto-asset-{idx}"
+        asset = str(rec.get("Asset", "crypto-asset"))
+        purl_name = asset.replace(" ", "_").replace("/", "-").replace("+", "plus")
+        components.append({
+            "type": "cryptographic-asset",
+            "bom-ref": bom_ref,
+            "name": asset,
+            "version": str(rec.get("TLS Version", "observed")),
+            "scope": "required",
+            "description": str(rec.get("Executive Note", "PCAP-derived cryptographic observation")),
+            "purl": f"pkg:rbi-cbom/crypto/{purl_name}@{rec.get('TLS Version','observed')}",
+            "properties": [
+                {"name": "rbi-cbom:protocol", "value": str(rec.get("Protocol", ""))},
+                {"name": "rbi-cbom:cipherSuite", "value": str(rec.get("Cipher Suite", ""))},
+                {"name": "rbi-cbom:keyExchange", "value": str(rec.get("Key Exchange", ""))},
+                {"name": "rbi-cbom:quantumReadiness", "value": str(rec.get("Quantum Readiness", ""))},
+                {"name": "rbi-cbom:quantumSafe", "value": str(rec.get("Quantum Safe", ""))},
+                {"name": "rbi-cbom:priority", "value": str(rec.get("Priority", ""))},
+                {"name": "rbi-cbom:risk", "value": str(rec.get("Risk", ""))},
+                {"name": "rbi-cbom:confidence", "value": str(rec.get("Confidence", ""))},
+                {"name": "rbi-cbom:evidenceId", "value": str(rec.get("Evidence ID", ""))},
+            ]
+        })
+    for idx, flow in enumerate(report.get("flows", []), 1):
+        services.append({
+            "bom-ref": f"service-flow-{idx}",
+            "name": flow.get("SNI") or flow.get("Destination") or f"tls-flow-{idx}",
+            "endpoints": [flow.get("Destination", "")],
+            "authenticated": False,
+            "x-trust-boundary": True,
+            "properties": [
+                {"name": "rbi-cbom:source", "value": str(flow.get("Source", ""))},
+                {"name": "rbi-cbom:destination", "value": str(flow.get("Destination", ""))},
+                {"name": "rbi-cbom:tls", "value": str(flow.get("TLS", ""))},
+                {"name": "rbi-cbom:cipher", "value": str(flow.get("Cipher", ""))},
+                {"name": "rbi-cbom:kex", "value": str(flow.get("KEX", ""))},
+                {"name": "rbi-cbom:quantum", "value": str(flow.get("Quantum", ""))},
+            ]
+        })
+    for idx, finding in enumerate(report.get("findings", []), 1):
+        annotations.append({
+            "bom-ref": f"annotation-finding-{idx}",
+            "subjects": [finding.get("Evidence ID", "")],
+            "annotator": {"component": {"name": "RBI CBOM"}},
+            "timestamp": now,
+            "text": f"{finding.get('Finding','Finding')}: {finding.get('Detail','')}",
+        })
+    return {
+        "bomFormat": "CycloneDX",
+        "specVersion": "1.6",
+        "serialNumber": serial,
+        "version": 1,
+        "metadata": {
+            "timestamp": now,
+            "tools": {"components": [{"type": "application", "name": "RBI CBOM", "version": "7.0"}]},
+            "component": {"type": "application", "name": doc.get("Target Application", "Uploaded PCAP"), "bom-ref": "target-application"},
+            "properties": [
+                {"name": "rbi-cbom:scanId", "value": str(doc.get("Scan ID", ""))},
+                {"name": "rbi-cbom:pcapSha256", "value": str(doc.get("PCAP SHA256", ""))},
+                {"name": "rbi-cbom:classification", "value": str(doc.get("Classification", ""))},
+                {"name": "rbi-cbom:evidenceMode", "value": "pcap-passive"},
+            ]
+        },
+        "components": components,
+        "services": services,
+        "annotations": annotations,
+        "properties": [
+            {"name": "rbi-cbom:format", "value": "pcap-derived-cbom"},
+            {"name": "rbi-cbom:quantumReadiness", "value": str(report.get("summary", {}).get("Quantum Readiness", ""))},
+            {"name": "rbi-cbom:overallRisk", "value": str(report.get("summary", {}).get("Overall Risk", ""))},
+        ]
+    }
+
+def canonical_json(obj):
+    return json.dumps(obj, sort_keys=True, separators=(",", ":"))
+
+def bom_integrity_manifest(bom):
+    payload = canonical_json(bom).encode("utf-8")
+    return {"algorithm": "SHA-256", "digest": hashlib.sha256(payload).hexdigest(), "signing_note": "Integrity digest only. Sign this digest or CycloneDX JSON with enterprise keys for non-repudiation.", "generated_at": datetime.utcnow().replace(microsecond=0).isoformat() + "Z"}
+
+def validate_cyclonedx_cbom(bom):
+    rows=[]
+    def add(check,status,detail): rows.append({"Check":check,"Status":status,"Detail":detail})
+    add("bomFormat", "Pass" if bom.get("bomFormat")=="CycloneDX" else "Fail", "CycloneDX JSON document expected.")
+    add("specVersion", "Pass" if bom.get("specVersion") in ["1.5","1.6","1.7"] else "Warn", "CycloneDX 1.5+ recommended.")
+    add("serialNumber", "Pass" if str(bom.get("serialNumber","")).startswith("urn:uuid:") else "Warn", "Unique BOM serial enables traceability.")
+    add("metadata", "Pass" if bom.get("metadata") else "Fail", "Metadata should identify target, tool, timestamp and evidence mode.")
+    add("components", "Pass" if bom.get("components") else "Warn", "CBOM should contain cryptographic components/assets.")
+    add("services", "Pass" if bom.get("services") else "Warn", "Service/flow context improves audit usability.")
+    add("annotations", "Pass" if bom.get("annotations") else "Warn", "Annotations preserve explainable findings and evidence notes.")
+    return rows
+
+def bom_audit_rules(report, bom):
+    rows=[]; cbom=report.get("cbom",[]); findings=report.get("findings",[]); flows=report.get("flows",[])
+    def add(rule,severity,status,rationale,action): rows.append({"Rule":rule,"Severity":severity,"Status":status,"Rationale":rationale,"Action":action})
+    add("BOM-STRUCTURE","Medium","Pass" if bom.get("components") else "Warn","CycloneDX CBOM components should be generated for downstream tools.","Export CycloneDX CBOM and retain with evidence pack.")
+    add("EVIDENCE-COVERAGE","High","Pass" if flows else "Warn","TLS flow context is needed for operational interpretation.","Capture ClientHello and ServerHello for each endpoint.")
+    qv=[r for r in cbom if r.get("Quantum Safe")=="No"]
+    add("PQC-MIGRATION-GAP","High" if qv else "Low","Open" if qv else "Pass","Classical asymmetric crypto remains quantum-vulnerable.","Plan hybrid/PQC pilot and crypto-agility roadmap.")
+    cert_manual=any("Certificate" in f.get("Finding","") or "Certificate" in f.get("Value","") for f in findings)
+    add("CERTIFICATE-VISIBILITY","Medium","Manual Validation" if cert_manual else "Pass","TLS 1.3 certificate details may not be visible from PCAP alone.","Use TLS key logs or external certificate scan for chain, issuer, SAN and expiry checks.")
+    missing_sni=[r for r in cbom if r.get("Protocol")=="TLS" and not r.get("SNI")]
+    add("SNI-COVERAGE","Low","Warn" if missing_sni else "Pass","SNI improves endpoint attribution and board reporting.","Capture from client side or enrich with DNS/asset inventory.")
+    return rows
+
+def spdx_like_export(report):
+    graph=[]
+    for rec in report.get("cbom",[]):
+        graph.append({"@id": f"urn:rbi-cbom:{rec.get('CBOM ID','asset')}", "@type":"software_SoftwareArtifact", "name":rec.get("Asset","crypto-asset"), "summary":rec.get("Executive Note",""), "externalIdentifier":[{"externalIdentifierType":"purl", "identifier":f"pkg:rbi-cbom/crypto/{str(rec.get('Asset','crypto')).replace(' ','_')}"}], "extension":{"protocol":rec.get("Protocol",""), "tlsVersion":rec.get("TLS Version",""), "cipherSuite":rec.get("Cipher Suite",""), "keyExchange":rec.get("Key Exchange",""), "quantumReadiness":rec.get("Quantum Readiness","")}})
+    return {"@context":"https://spdx.org/rdf/3.0.1/spdx-context.jsonld", "@graph":graph}
+
+def cdxgen_capability_summary(report,bom,audit_rows):
+    return {"CycloneDX CBOM Components":len(bom.get("components",[])), "Services / TLS Flows":len(bom.get("services",[])), "Evidence Annotations":len(bom.get("annotations",[])), "Audit Rules":len(audit_rows), "Open High Findings":sum(1 for r in audit_rows if r.get("Severity")=="High" and r.get("Status") in ["Open","Warn","Manual Validation"]), "BOM Integrity":"SHA-256 digest available"}
 
 
 def html_report(r):
@@ -482,6 +607,9 @@ def html_report(r):
           <h2>Compliance Mapping</h2>
           {compliance_table}
 
+          <h2>BOM Governance</h2>
+          <p>Machine-readable CycloneDX CBOM export, validation checks, audit rules, and an integrity manifest are available from the dashboard Exports tab.</p>
+
           <h2>Quantum Remediation Roadmap</h2>
           {recommendations_table}
 
@@ -550,6 +678,9 @@ st.sidebar.write("• Server selected key share")
 st.sidebar.write("• Client PQ/hybrid offer detection")
 st.sidebar.write("• Report-grade CBOM")
 st.sidebar.write("• Board-ready HTML export")
+st.sidebar.write("• CycloneDX-style CBOM export")
+st.sidebar.write("• BOM validation and audit rules")
+st.sidebar.write("• Integrity digest and SPDX-style export")
 
 st.markdown("""<div class="hero"><div class="heroTop"><div><span class="badge bblue">RBI CBOM</span><span class="badge bviolet">Quantum Readiness</span><span class="badge">PCAP Evidence Mode</span><h1>RBI CBOM Quantum Readiness Dashboard</h1><p class="sub">Standalone executive dashboard for TLS version detection, cryptographic bill of materials, evidence-backed compliance mapping, and harvest-now-decrypt-later quantum-risk assessment from uploaded PCAP files.</p></div><div class="uploadBox"><b>Upload PCAP / PCAPNG</b><p class="muted">Built-in parser reads TLS ClientHello/ServerHello and final TLS 1.3 supported_versions.</p>""", unsafe_allow_html=True)
 up=st.file_uploader("Upload PCAP / PCAPNG / CAP",type=["pcap","pcapng","cap"],label_visibility="collapsed")
@@ -561,6 +692,15 @@ data=up.read()
 report=analyze_bytes(data, up.name, {"target":target,"business_unit":unit,"classification":classification})
 s=report["summary"]
 
+# cdxgen-inspired BOM governance outputs
+cyclonedx_bom = cyclonedx_cbom(report)
+bom_validation = validate_cyclonedx_cbom(cyclonedx_bom)
+bom_audit = bom_audit_rules(report, cyclonedx_bom)
+bom_integrity = bom_integrity_manifest(cyclonedx_bom)
+spdx_like = spdx_like_export(report)
+capability_summary = cdxgen_capability_summary(report, cyclonedx_bom, bom_audit)
+
+
 st.markdown(f"""<div class="grid4"><div class="metric"><div class="label">Quantum Readiness</div><div class="val">{s['Quantum Readiness']}</div><div class="note">{badge('Transition stage' if s['Quantum Readiness']=='Partially Ready' else s['Overall Risk'])}</div></div><div class="metric"><div class="label">TLS Version</div><div class="val">{s['TLS Version']}</div><div class="note">{badge('Observed')}</div></div><div class="metric"><div class="label">Cipher Suite</div><div class="val" style="font-size:17px">{s['Cipher Suite']}</div><div class="note">{badge('Strong')}</div></div><div class="metric"><div class="label">Key Exchange</div><div class="val">{s['Key Exchange'].replace('secp256r1 / ','')}</div><div class="note">{badge('Classical ECC')}</div></div></div>""", unsafe_allow_html=True)
 st.markdown(f"""<div class="two"><div class="card dark"><h3>Executive Assessment</h3><p>TLS 1.3 is used with modern protocol security. The selected cipher suite is {s['Cipher Suite']}. The final negotiated key exchange is {s['Key Exchange']}. The client appears to offer a hybrid post-quantum key share, but the final session does not show post-quantum or hybrid key exchange. Therefore, the endpoint should not be treated as fully quantum-safe based on this PCAP.</p><div class="kpis"><div class="kpi"><small>Target</small><strong>{s['Target']}</strong></div><div class="kpi"><small>Server IP</small><strong>{s['Server IP']}</strong></div><div class="kpi"><small>TLS Sessions</small><strong>{s['TLS Sessions']}</strong></div></div></div><div class="card risk"><h3>Board-Level Risk</h3><p>The endpoint may be secure by current classical TLS standards, but it is not fully quantum-safe because the final negotiated key exchange is classical or not PQ-observable.</p>{badge('Harvest-now-decrypt-later risk present')}</div></div>""", unsafe_allow_html=True)
 
@@ -571,7 +711,7 @@ for f in report["findings"][:6]:
     cards+=f"""<div class="finding"><div class="findingTop">{badge(f['Confidence'])}</div><div class="title">{f['Finding']}</div><div class="value">{f['Value']}</div><div class="detail">{f['Detail']}</div><div class="foot"><span>Status: {f['Status']}</span><span>Confidence: {f['Confidence']}</span></div></div>"""
 st.markdown(f"<div class='findings'>{cards}</div>",unsafe_allow_html=True)
 
-tabs=st.tabs(["Report CBOM","Observed TLS Flows","Compliance Mapping","Roadmap","Evidence + Logs","Exports"])
+tabs=st.tabs(["Report CBOM","Observed TLS Flows","Compliance Mapping","Roadmap","BOM Governance","Evidence + Logs","Exports"])
 with tabs[0]:
     st.markdown("### Cryptographic Bill of Materials")
     st.dataframe(clean_board_df(pd.DataFrame(report["report_cbom"])),use_container_width=True,hide_index=True)
@@ -585,14 +725,37 @@ with tabs[2]:
 with tabs[3]:
     st.markdown('<div class="road">'+"".join([f"<div class='card'><span class='badge bblue'>{x['Phase']}</span><h3 style='margin-top:14px'>{x['Title']}</h3><ul>"+''.join([f'<li>{a.strip()}</li>' for a in x['Actions'].split(';')])+"</ul></div>" for x in report["roadmap"]])+"</div>",unsafe_allow_html=True)
 with tabs[4]:
+    st.markdown("### cdxgen-Inspired BOM Governance")
+    st.caption("Adds machine-readable CBOM, validation, audit rules, service context, annotations, and integrity digest while preserving the current board design.")
+    st.dataframe(pd.DataFrame(capability_summary.items(), columns=["Capability", "Value"]), use_container_width=True, hide_index=True)
+    c1, c2 = st.columns(2)
+    with c1:
+        st.markdown("#### CycloneDX CBOM Validation")
+        st.dataframe(pd.DataFrame(bom_validation), use_container_width=True, hide_index=True)
+    with c2:
+        st.markdown("#### BOM Integrity Manifest")
+        st.json(bom_integrity)
+    st.markdown("#### BOM Audit Rules")
+    st.dataframe(pd.DataFrame(bom_audit), use_container_width=True, hide_index=True)
+    st.markdown("#### CycloneDX CBOM Preview")
+    preview = {k: cyclonedx_bom[k] for k in ["bomFormat", "specVersion", "serialNumber", "version"]}
+    preview["component_count"] = len(cyclonedx_bom.get("components", []))
+    preview["service_count"] = len(cyclonedx_bom.get("services", []))
+    preview["annotation_count"] = len(cyclonedx_bom.get("annotations", []))
+    st.json(preview)
+with tabs[5]:
     st.dataframe(clean_board_df(pd.DataFrame(report["evidence"])),use_container_width=True,hide_index=True)
     st.markdown("### What This PCAP Cannot Prove Alone")
     st.markdown(f"<div class='card warn'><p>{report['limitations'][0]}</p></div>",unsafe_allow_html=True)
     st.markdown("### Parser Log")
     st.markdown(f"<div class='console'>{chr(10).join(report['parser_logs'])}</div>",unsafe_allow_html=True)
-with tabs[5]:
+with tabs[6]:
     st.download_button("Download Board-Ready HTML Report",html_report(report),"rbi_cbom_board_report.html","text/html")
     st.download_button("Download Full JSON Report",json.dumps(report,indent=2),"rbi_cbom_report.json","application/json")
+    st.download_button("Download CycloneDX CBOM JSON",json.dumps(cyclonedx_bom,indent=2),"rbi_cbom_cyclonedx.json","application/json")
+    st.download_button("Download SPDX-style JSON-LD",json.dumps(spdx_like,indent=2),"rbi_cbom_spdx_like.jsonld","application/ld+json")
+    st.download_button("Download BOM Audit CSV",pd.DataFrame(bom_audit).to_csv(index=False),"rbi_cbom_audit.csv","text/csv")
+    st.download_button("Download BOM Integrity Manifest",json.dumps(bom_integrity,indent=2),"rbi_cbom_integrity.json","application/json")
     st.download_button("Download Report CBOM CSV",clean_board_df(pd.DataFrame(report["report_cbom"])).to_csv(index=False),"rbi_cbom_report.csv","text/csv")
     st.download_button("Download Technical CBOM CSV",clean_board_df(pd.DataFrame(report["cbom"])).to_csv(index=False),"rbi_cbom_technical.csv","text/csv")
 

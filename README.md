@@ -44,3 +44,16 @@ Removed from dashboard and exported report:
 - Evidence labels / Evidence Type fields
 - Evidence labels chart
 - CBOM evidence types chart
+
+
+## v7 cdxgen-inspired capabilities
+
+Added while keeping the existing board UI:
+- CycloneDX-style CBOM JSON export
+- SPDX-style JSON-LD export
+- BOM validation checks
+- BOM audit rules
+- Services / TLS flow context
+- Evidence annotations
+- BOM integrity SHA-256 manifest
+- purl-like identifiers for cryptographic assets
