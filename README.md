@@ -33,3 +33,27 @@ docker run --rm -p 8501:8501 rbi-qubom
 
 ## Branding update
 The tool has been renamed from RBI CBOM to **RBI QuBOM**. Core CBOM/SBOM capabilities are unchanged.
+
+
+## v11 source vulnerability analysis
+RBI QuBOM now analyzes source code for vulnerability patterns and provides remediation recommendations.
+
+Detected categories include:
+- SQL injection
+- OS command injection
+- Dynamic code execution
+- Hardcoded secrets
+- Weak hashes and weak crypto
+- Insecure TLS versions
+- Unsafe deserialization
+- Path traversal
+- XSS sinks
+- JWT verification issues
+- Debug mode enabled
+- Overly permissive CORS
+- Disabled certificate verification
+
+Exports added:
+- Source Vulnerabilities CSV
+- Source Vulnerability Roadmap CSV
+- Vulnerabilities included in Standard BOM JSON

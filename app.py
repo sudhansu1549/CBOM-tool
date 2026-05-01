@@ -327,11 +327,14 @@ def analyze_source(uploaded,target):
         key=(r.get('Component'),r.get('Version'),r.get('Ecosystem'),r.get('Source File'))
         if key not in seen: seen.add(key); dedup.append(r)
     sbom=dedup; scbom,findings=source_cbom(files)
+    vulnerabilities=analyze_source_vulnerabilities_from_files(files)
+    vulnerability_summary=summarize_vulnerabilities(vulnerabilities)
+    vulnerability_roadmap=source_vulnerability_roadmap(vulnerabilities)
     summary={'Target':target,'Files Scanned':len(files),'Manifest Files Found':len(manifests),'SBOM Components':len(sbom),'Source CBOM Findings':len(scbom),'Critical Crypto Findings':sum(1 for r in scbom if r['Priority']=='Priority 1'),'Quantum-Vulnerable Findings':sum(1 for r in scbom if r['Priority']=='Priority 2'),'Parsing Notes':'; '.join(errors) if errors else 'No parsing errors'}
     integrity={'Tool':'RBI QuBOM','Generated At':datetime.now().isoformat(),'Source Filename':uploaded.name,'Archive SHA256':hashlib.sha256(uploaded.getvalue()).hexdigest(),'SBOM Components':len(sbom),'CBOM Findings':len(scbom)}
-    standard={'bomFormat':'RBI-QuBOM-Standard','specVersion':'1.0','serialNumber':'urn:uuid:'+str(uuid.uuid4()),'metadata':{'timestamp':datetime.now().isoformat(),'tool':'RBI QuBOM','component':{'name':target,'type':'application'}},'components':[{'type':'library','name':r['Component'],'version':r['Version'],'ecosystem':r['Ecosystem'],'scope':r['Scope'],'purl':r['purl-like ID'],'evidence':{'source':r['Source File']}} for r in sbom],'cryptography':scbom}
+    standard={'bomFormat':'RBI-QuBOM-Standard','specVersion':'1.0','serialNumber':'urn:uuid:'+str(uuid.uuid4()),'metadata':{'timestamp':datetime.now().isoformat(),'tool':'RBI QuBOM','component':{'name':target,'type':'application'}},'components':[{'type':'library','name':r['Component'],'version':r['Version'],'ecosystem':r['Ecosystem'],'scope':r['Scope'],'purl':r['purl-like ID'],'evidence':{'source':r['Source File']}} for r in sbom],'cryptography':scbom,'vulnerabilities':vulnerabilities}
     spdx={'spdxVersion':'SPDX-2.3-like','name':target,'documentNamespace':'https://rbi-qubom.local/spdx/'+str(uuid.uuid4()),'creationInfo':{'created':datetime.now().isoformat(),'creators':['Tool: RBI QuBOM']},'packages':[{'name':r['Component'],'versionInfo':r['Version'],'supplier':'NOASSERTION','downloadLocation':'NOASSERTION','externalRefs':[{'referenceType':'purl','referenceLocator':r['purl-like ID']}],'sourceFile':r['Source File']} for r in sbom]}
-    return {'summary':summary,'manifests':manifests,'sbom':sbom,'source_cbom':scbom,'source_findings':findings,'integrity':integrity,'standard_bom_json':standard,'spdx_like_json':spdx}
+    return {'summary':summary,'manifests':manifests,'sbom':sbom,'source_cbom':scbom,'source_findings':findings,'vulnerabilities':vulnerabilities,'vulnerability_summary':vulnerability_summary,'vulnerability_roadmap':vulnerability_roadmap,'integrity':integrity,'standard_bom_json':standard,'spdx_like_json':spdx}
 
 
 def _html_escape(x):
@@ -575,6 +578,12 @@ def source_html_report(source_report):
         <h2>Source-Code CBOM</h2>
         {source_cbom_table}
 
+        <h2>Source Vulnerabilities</h2>
+        {source_vuln_table}
+
+        <h2>Source Vulnerability Remediation Roadmap</h2>
+        {source_vuln_roadmap_table}
+
         <h2>Manifest Files Detected</h2>
         {manifest_table}
 
@@ -601,6 +610,8 @@ def source_html_report(source_report):
         finding_cards=finding_cards,
         sbom_table=_board_table(source_report.get("sbom", [])),
         source_cbom_table=_board_table(source_report.get("source_cbom", [])),
+        source_vuln_table=_board_table(source_report.get("vulnerabilities", [])),
+        source_vuln_roadmap_table=_board_table(source_report.get("vulnerability_roadmap", [])),
         manifest_table=_board_table(manifest_rows),
         roadmap_table=_board_table([
             {"Phase": "0–30 Days", "Title": "Dependency Baseline", "Actions": "Validate manifests, generate SBOM, assign ownership for critical packages."},
@@ -612,6 +623,254 @@ def source_html_report(source_report):
     )
     return html_doc
 
+
+
+# ============================================================
+# Source Code Vulnerability Analysis
+# ============================================================
+
+VULN_PATTERNS = [
+    {
+        "Category": "Injection",
+        "Finding": "Possible SQL injection",
+        "Pattern": r"(execute|query|rawQuery|createQuery)\s*\([^\\n)]*(\+|%|format\(|f['\"]|\\$\\{)",
+        "Severity": "Critical",
+        "Confidence": "Medium",
+        "CWE": "CWE-89",
+        "OWASP": "A03: Injection",
+        "Recommendation": "Use parameterized queries, prepared statements, ORM bind parameters, and strict input validation. Never concatenate user-controlled values into SQL."
+    },
+    {
+        "Category": "Command Execution",
+        "Finding": "Possible OS command injection",
+        "Pattern": r"(os\.system|subprocess\.Popen|subprocess\.call|subprocess\.run|exec\(|Runtime\.getRuntime\(\)\.exec|child_process\.exec)\s*\(",
+        "Severity": "Critical",
+        "Confidence": "Medium",
+        "CWE": "CWE-78",
+        "OWASP": "A03: Injection",
+        "Recommendation": "Avoid shell execution. Use safe APIs with argument arrays, strict allowlists, and never pass unsanitized user input to command execution functions."
+    },
+    {
+        "Category": "Code Execution",
+        "Finding": "Dynamic code execution detected",
+        "Pattern": r"\b(eval|exec)\s*\(|new Function\s*\(",
+        "Severity": "Critical",
+        "Confidence": "Medium",
+        "CWE": "CWE-94",
+        "OWASP": "A03: Injection",
+        "Recommendation": "Remove dynamic evaluation. Replace with safe parsing, template engines with sandboxing, or explicit dispatch maps."
+    },
+    {
+        "Category": "Secrets",
+        "Finding": "Hardcoded secret or credential",
+        "Pattern": r"(?i)(api[_-]?key|secret|password|passwd|pwd|token|private[_-]?key|access[_-]?key)\s*[:=]\s*['\"][^'\"]{8,}['\"]",
+        "Severity": "High",
+        "Confidence": "High",
+        "CWE": "CWE-798",
+        "OWASP": "A07: Identification and Authentication Failures",
+        "Recommendation": "Move secrets to a vault or secret manager, rotate exposed credentials, and add pre-commit secret scanning."
+    },
+    {
+        "Category": "Cryptography",
+        "Finding": "Weak hashing algorithm",
+        "Pattern": r"(?i)(md5|sha1)\s*\(|MessageDigest\.getInstance\(['\"](MD5|SHA-1)['\"]\)",
+        "Severity": "High",
+        "Confidence": "High",
+        "CWE": "CWE-327",
+        "OWASP": "A02: Cryptographic Failures",
+        "Recommendation": "Replace MD5/SHA-1 with SHA-256/SHA-384/SHA-512 for hashing. For passwords, use Argon2id, bcrypt, scrypt, or PBKDF2 with strong parameters."
+    },
+    {
+        "Category": "Cryptography",
+        "Finding": "Insecure TLS/SSL version",
+        "Pattern": r"(?i)(TLSv1\.0|TLSv1\.1|SSLv2|SSLv3|PROTOCOL_TLSv1\b|PROTOCOL_TLSv1_1)",
+        "Severity": "High",
+        "Confidence": "High",
+        "CWE": "CWE-326",
+        "OWASP": "A02: Cryptographic Failures",
+        "Recommendation": "Disable SSL, TLS 1.0, and TLS 1.1. Enforce TLS 1.2 minimum and prefer TLS 1.3 with strong cipher suites."
+    },
+    {
+        "Category": "Cryptography",
+        "Finding": "Weak cipher or mode",
+        "Pattern": r"(?i)(DES|3DES|RC4|ECB|AES/ECB|DESede)",
+        "Severity": "High",
+        "Confidence": "Medium",
+        "CWE": "CWE-327",
+        "OWASP": "A02: Cryptographic Failures",
+        "Recommendation": "Use AEAD ciphers such as AES-GCM or ChaCha20-Poly1305. Avoid ECB, RC4, DES, and 3DES."
+    },
+    {
+        "Category": "Cryptography",
+        "Finding": "Classical asymmetric cryptography requiring PQC migration planning",
+        "Pattern": r"(?i)(RSA|ECDSA|ECDH|DiffieHellman|secp256r1|prime256v1|x25519|P-256)",
+        "Severity": "Medium",
+        "Confidence": "Medium",
+        "CWE": "PQC-READINESS",
+        "OWASP": "Cryptographic Agility",
+        "Recommendation": "Track use of RSA/ECC/DH and plan crypto-agility. For long-term confidentiality, pilot hybrid/PQC key establishment such as ML-KEM where platform support exists."
+    },
+    {
+        "Category": "Deserialization",
+        "Finding": "Unsafe deserialization",
+        "Pattern": r"(?i)(pickle\.loads|yaml\.load\s*\(|ObjectInputStream|readObject\(|unserialize\(|Marshal\.load)",
+        "Severity": "Critical",
+        "Confidence": "Medium",
+        "CWE": "CWE-502",
+        "OWASP": "A08: Software and Data Integrity Failures",
+        "Recommendation": "Avoid unsafe deserialization of untrusted data. Use safe loaders, signed data, strict schemas, and allowlisted types."
+    },
+    {
+        "Category": "Path Traversal",
+        "Finding": "Possible path traversal",
+        "Pattern": r"(?i)(open|FileInputStream|send_file|sendFile|readFile)\s*\([^\\n)]*(request|req\.|params|query|input|filename|path)",
+        "Severity": "High",
+        "Confidence": "Low",
+        "CWE": "CWE-22",
+        "OWASP": "A01: Broken Access Control",
+        "Recommendation": "Normalize paths, enforce base-directory checks, use allowlists, and reject '../' or absolute-path input."
+    },
+    {
+        "Category": "XSS",
+        "Finding": "Possible reflected/stored XSS sink",
+        "Pattern": r"(?i)(innerHTML|dangerouslySetInnerHTML|document\.write|html_safe|Markup\(|render_template_string)",
+        "Severity": "High",
+        "Confidence": "Medium",
+        "CWE": "CWE-79",
+        "OWASP": "A03: Injection",
+        "Recommendation": "Use framework auto-escaping, sanitize HTML with an approved sanitizer, and avoid writing untrusted input into HTML sinks."
+    },
+    {
+        "Category": "Authentication",
+        "Finding": "JWT verification may be disabled or weak",
+        "Pattern": r"(?i)(verify\s*:\s*false|algorithms\s*:\s*\[\s*['\"]none['\"]|jwt\.decode\([^\\n)]*verify\s*=\s*False)",
+        "Severity": "Critical",
+        "Confidence": "Medium",
+        "CWE": "CWE-347",
+        "OWASP": "A07: Identification and Authentication Failures",
+        "Recommendation": "Always verify JWT signatures, enforce allowed algorithms server-side, reject 'none', and validate issuer, audience, expiry, and key rotation."
+    },
+    {
+        "Category": "Security Misconfiguration",
+        "Finding": "Debug mode enabled",
+        "Pattern": r"(?i)(debug\s*=\s*True|DEBUG\s*=\s*True|app\.run\([^\\n)]*debug\s*=\s*True|NODE_ENV\s*=\s*['\"]development)",
+        "Severity": "Medium",
+        "Confidence": "High",
+        "CWE": "CWE-489",
+        "OWASP": "A05: Security Misconfiguration",
+        "Recommendation": "Disable debug mode in production. Use environment-specific configuration and secure error handling."
+    },
+    {
+        "Category": "CORS",
+        "Finding": "Overly permissive CORS",
+        "Pattern": r"(?i)(Access-Control-Allow-Origin['\"]?\s*[:=]\s*['\"]\*|cors\(\s*\)|origin\s*:\s*['\"]\*)",
+        "Severity": "Medium",
+        "Confidence": "Medium",
+        "CWE": "CWE-942",
+        "OWASP": "A05: Security Misconfiguration",
+        "Recommendation": "Restrict CORS origins to trusted domains. Avoid wildcard origins for authenticated or sensitive APIs."
+    },
+    {
+        "Category": "Transport Security",
+        "Finding": "Certificate verification disabled",
+        "Pattern": r"(?i)(verify\s*=\s*False|rejectUnauthorized\s*:\s*false|CERT_NONE|check_hostname\s*=\s*False)",
+        "Severity": "High",
+        "Confidence": "High",
+        "CWE": "CWE-295",
+        "OWASP": "A02: Cryptographic Failures",
+        "Recommendation": "Enable certificate verification and hostname validation. Use trusted CA bundles and certificate pinning only where operationally justified."
+    }
+]
+
+def _severity_rank(sev):
+    return {"Critical": 4, "High": 3, "Medium": 2, "Low": 1, "Info": 0}.get(str(sev), 0)
+
+def _line_no(text, idx):
+    try:
+        return text[:idx].count("\\n") + 1
+    except Exception:
+        return ""
+
+def _safe_snippet(text, start, end, radius=90):
+    s = max(0, start - radius)
+    e = min(len(text), end + radius)
+    snippet = text[s:e].replace("\\n", " ").replace("\\r", " ")
+    # simple secret redaction
+    snippet = re.sub(r"(?i)(password|secret|token|api[_-]?key)(\\s*[:=]\\s*)['\\\"][^'\\\"]+['\\\"]", r"\\1\\2'[REDACTED]'", snippet)
+    return snippet[:260]
+
+def analyze_source_vulnerabilities_from_files(files):
+    vulns = []
+    for path, raw in files:
+        ext = Path(path).suffix.lower()
+        if ext not in SOURCE_EXTENSIONS and not _is_manifest(path):
+            continue
+        text = _safe_text(raw)
+        if not text:
+            continue
+        for rule in VULN_PATTERNS:
+            try:
+                matches = list(re.finditer(rule["Pattern"], text, flags=re.IGNORECASE))
+            except Exception:
+                matches = []
+            for m in matches[:50]:
+                vulns.append({
+                    "Severity": rule["Severity"],
+                    "Category": rule["Category"],
+                    "Finding": rule["Finding"],
+                    "CWE": rule["CWE"],
+                    "OWASP": rule["OWASP"],
+                    "Source File": path,
+                    "Line": _line_no(text, m.start()),
+                    "Confidence": rule["Confidence"],
+                    "Evidence Snippet": _safe_snippet(text, m.start(), m.end()),
+                    "Recommendation": rule["Recommendation"],
+                    "Fix Priority": "Immediate" if rule["Severity"] == "Critical" else "High" if rule["Severity"] == "High" else "Planned"
+                })
+    vulns.sort(key=lambda r: (_severity_rank(r["Severity"]), str(r["Source File"]), int(r["Line"]) if str(r["Line"]).isdigit() else 0), reverse=True)
+    return vulns
+
+def summarize_vulnerabilities(vulns):
+    return {
+        "Total Vulnerabilities": len(vulns),
+        "Critical": sum(1 for v in vulns if v.get("Severity") == "Critical"),
+        "High": sum(1 for v in vulns if v.get("Severity") == "High"),
+        "Medium": sum(1 for v in vulns if v.get("Severity") == "Medium"),
+        "Low": sum(1 for v in vulns if v.get("Severity") == "Low"),
+        "Top Category": pd.DataFrame(vulns)["Category"].value_counts().idxmax() if vulns else "None"
+    }
+
+def source_vulnerability_roadmap(vulns):
+    critical = [v for v in vulns if v.get("Severity") == "Critical"]
+    high = [v for v in vulns if v.get("Severity") == "High"]
+    medium = [v for v in vulns if v.get("Severity") == "Medium"]
+    return [
+        {
+            "Timeline": "0–7 Days",
+            "Phase": "Critical Risk Triage",
+            "Action": "Fix exploitable critical findings first: injection, unsafe deserialization, dynamic code execution, and JWT verification issues.",
+            "Affected Findings": len(critical)
+        },
+        {
+            "Timeline": "7–30 Days",
+            "Phase": "High-Risk Remediation",
+            "Action": "Remove hardcoded secrets, weak crypto, disabled certificate verification, XSS sinks, and path traversal risks.",
+            "Affected Findings": len(high)
+        },
+        {
+            "Timeline": "30–90 Days",
+            "Phase": "Secure SDLC Controls",
+            "Action": "Add SAST, secret scanning, dependency scanning, code review gates, and SBOM/CBOM generation into CI/CD.",
+            "Affected Findings": len(medium)
+        },
+        {
+            "Timeline": "Ongoing",
+            "Phase": "Governance",
+            "Action": "Track recurrence, remediation SLA, risk acceptance, and board-level cyber posture trends.",
+            "Affected Findings": len(vulns)
+        }
+    ]
+
 # UI
 st.sidebar.title('🛡️ RBI QuBOM')
 st.sidebar.caption('PCAP CBOM + Source-code SBOM/CBOM with stable quantum priority model.')
@@ -619,9 +878,9 @@ target=st.sidebar.text_input('Target Application','RBI-Website')
 unit=st.sidebar.text_input('Business Unit','Network')
 classification=st.sidebar.selectbox('Classification',['CONFIDENTIAL','INTERNAL','RESTRICTED','PUBLIC'],0)
 
-st.markdown("""<div class="hero"><div class="heroTop"><div><span class="badge bblue">RBI QuBOM</span><span class="badge bviolet">PCAP + Source Code</span><span class="badge">Stable Priority Model</span><h1>RBI QuBOM Board Dashboard</h1><p class="sub">Generate PCAP-based cryptographic CBOM, source-code cryptography CBOM, and source-code SBOM from one home page. Quantum priority is defined below.</p></div><div class="uploadBox"><b>Choose analysis type below</b><p class="muted">PCAP CBOM and Source SBOM/CBOM are both available on the home page.</p></div></div></div>""", unsafe_allow_html=True)
+st.markdown("""<div class="hero"><div class="heroTop"><div><span class="badge bblue">RBI QuBOM</span><span class="badge bviolet">PCAP + Source Code</span><span class="badge">Stable Priority Model</span><h1>RBI QuBOM Board Dashboard</h1><p class="sub">Generate PCAP-based cryptographic CBOM, source-code cryptography CBOM, and source-code SBOM from one home page. Quantum priority is defined once and applied consistently.</p></div><div class="uploadBox"><b>Choose analysis type below</b><p class="muted">PCAP CBOM and Source SBOM/CBOM are both available on the home page.</p></div></div></div>""", unsafe_allow_html=True)
 
-st.markdown('<div class="sectionHead"><div><h2>Quantum Priority Definition</h2></div></div>', unsafe_allow_html=True)
+st.markdown('<div class="sectionHead"><div><h2>Quantum Priority Definition</h2><p class="desc">This fixed model prevents the quantum-readiness parameter from changing unpredictably across reports.</p></div></div>', unsafe_allow_html=True)
 st.dataframe(priority_definition(), use_container_width=True, hide_index=True)
 
 home_tabs=st.tabs(['PCAP-based CBOM','Source-code SBOM & CBOM'])
@@ -655,12 +914,20 @@ with home_tabs[1]:
         sr=analyze_source(src,target); sm=sr['summary']
         st.markdown(f"""<div class="grid4"><div class="metric"><div class="label">Files Scanned</div><div class="val">{sm['Files Scanned']}</div></div><div class="metric"><div class="label">SBOM Components</div><div class="val">{sm['SBOM Components']}</div></div><div class="metric"><div class="label">Source CBOM Findings</div><div class="val">{sm['Source CBOM Findings']}</div></div><div class="metric"><div class="label">Quantum Vulnerable</div><div class="val">{sm['Quantum-Vulnerable Findings']}</div>{badge('Priority 2')}</div></div>""", unsafe_allow_html=True)
         if sm['Parsing Notes']!='No parsing errors': st.warning(sm['Parsing Notes'])
-        st_tabs=st.tabs(['Source Summary','SBOM','Source CBOM','Source Findings','Exports'])
+        st_tabs=st.tabs(['Source Summary','SBOM','Source CBOM','Source Findings','Vulnerabilities','Fix Roadmap','Exports'])
         with st_tabs[0]: st.dataframe(pd.DataFrame(sm.items(),columns=['Metric','Value']),use_container_width=True,hide_index=True); st.dataframe(pd.DataFrame({'Manifest':sr['manifests']}),use_container_width=True,hide_index=True)
         with st_tabs[1]: st.dataframe(pd.DataFrame(sr['sbom']),use_container_width=True,hide_index=True)
         with st_tabs[2]: st.dataframe(pd.DataFrame(sr['source_cbom']),use_container_width=True,hide_index=True)
         with st_tabs[3]: st.dataframe(pd.DataFrame(sr['source_findings']),use_container_width=True,hide_index=True)
         with st_tabs[4]:
+            st.markdown('### Source Code Vulnerabilities')
+            st.dataframe(pd.DataFrame(sr.get('vulnerabilities', [])),use_container_width=True,hide_index=True)
+            st.markdown('### Vulnerability Summary')
+            st.dataframe(pd.DataFrame(sr.get('vulnerability_summary', {}).items(),columns=['Metric','Value']),use_container_width=True,hide_index=True)
+        with st_tabs[5]:
+            st.markdown('### Recommendations to Fix Vulnerabilities')
+            st.dataframe(pd.DataFrame(sr.get('vulnerability_roadmap', [])),use_container_width=True,hide_index=True)
+        with st_tabs[6]:
             st.download_button('Download Source Board HTML Report',source_html_report(sr),'rbi_qubom_source_board_report.html','text/html')
             st.download_button('Download Source SBOM CSV',pd.DataFrame(sr['sbom']).to_csv(index=False),'rbi_qubom_source_sbom.csv','text/csv')
             st.download_button('Download Source CBOM CSV',pd.DataFrame(sr['source_cbom']).to_csv(index=False),'rbi_qubom_source_cbom.csv','text/csv')
