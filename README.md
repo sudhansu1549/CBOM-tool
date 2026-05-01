@@ -46,14 +46,38 @@ Removed from dashboard and exported report:
 - CBOM evidence types chart
 
 
-## v7 cdxgen-inspired capabilities
+# RBI CBOM v8 — Comprehensive PCAP + Source Code SBOM/CBOM
 
-Added while keeping the existing board UI:
-- CycloneDX-style CBOM JSON export
-- SPDX-style JSON-LD export
-- BOM validation checks
-- BOM audit rules
-- Services / TLS flow context
-- Evidence annotations
-- BOM integrity SHA-256 manifest
-- purl-like identifiers for cryptographic assets
+## Removed
+All CycloneDX branding/mentions have been removed.
+
+## New capabilities
+RBI CBOM now supports PCAP CBOM, source-code SBOM, and source-code CBOM.
+
+### Source Code SBOM manifests
+- package.json
+- requirements.txt
+- pyproject.toml
+- pom.xml
+- go.mod
+- Cargo.toml
+- composer.json
+- Gemfile
+
+### Source Code CBOM crypto detection
+- RSA, DSA, ECDSA/ECDH, Diffie-Hellman
+- AES, DES/3DES, RC4
+- MD5, SHA-1, SHA-256, SHA-384/SHA-512
+- TLS 1.0/1.1/1.2/1.3
+- OpenSSL, Java crypto, Python crypto, Node crypto
+- PQC/hybrid indicators
+
+### Exports
+- Standard BOM JSON
+- SPDX-like JSON
+- SBOM CSV
+- Source CBOM CSV
+- BOM integrity manifest
+
+## Note
+For full enterprise parity with leading SBOM platforms, connect RBI CBOM to NVD, OSV, GHSA, EPSS, KEV, package registries, license databases, and internal asset inventories.
