@@ -1,6 +1,6 @@
 services:
   - type: web
-    name: rbi-cbom
+    name: rbi-qubom
     env: docker
     plan: starter
     autoDeploy: true

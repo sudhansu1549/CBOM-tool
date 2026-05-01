@@ -1,4 +1,4 @@
-# RBI CBOM v9 — Stable Priority + Home Page PCAP/SBOM/CBOM
+# RBI QuBOM v9 — Stable Priority + Home Page PCAP/SBOM/CBOM
 
 ## Fixes
 - Stable quantum priority model: Priority 1/2/3/4 are explicitly defined and used everywhere.
@@ -21,11 +21,15 @@ streamlit run app.py
 
 ## Docker
 ```bash
-docker build -t rbi-cbom .
-docker run --rm -p 8501:8501 rbi-cbom
+docker build -t rbi-qubom .
+docker run --rm -p 8501:8501 rbi-qubom
 ```
 
 
 ## v10 board-report patch
 - Restored PCAP Board HTML report to the earlier executive board-meeting format.
 - Added matching Source Code SBOM/CBOM Board HTML report export.
+
+
+## Branding update
+The tool has been renamed from RBI CBOM to **RBI QuBOM**. Core CBOM/SBOM capabilities are unchanged.

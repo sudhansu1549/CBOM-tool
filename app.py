@@ -7,7 +7,7 @@ from pathlib import Path
 from datetime import datetime
 import xml.etree.ElementTree as ET
 
-st.set_page_config(page_title="RBI CBOM | Board Dashboard", page_icon="🛡️", layout="wide")
+st.set_page_config(page_title="RBI QuBOM | Board Dashboard", page_icon="🛡️", layout="wide")
 
 st.markdown("""
 <style>
@@ -208,13 +208,13 @@ def analyze_pcap_bytes(data, filename, meta):
     if cbom:
         p=cbom[0]
         findings=[{'Finding':'TLS Version Negotiated','Value':p['TLS Version'],'Status':'Observed','Confidence':'High','Detail':'TLS version is taken from final ServerHello evidence; TLS 1.3 supported_versions overrides legacy version.','Endpoint':p['Destination'],'Priority':p['Priority']},{'Finding':'Final Key Exchange','Value':p['Key Exchange'],'Status':p['Quantum Posture'],'Confidence':p['Confidence'],'Detail':'Final server-selected key exchange determines quantum readiness.','Endpoint':p['Destination'],'Priority':p['Priority']},{'Finding':'Server PQ Negotiation','Value':p['Server Selected PQ Hybrid'],'Status':'Negotiated' if p['Server Selected PQ Hybrid']=='Yes' else 'Not negotiated','Confidence':'High','Detail':'Client PQ offer does not make the session quantum-safe unless server selected hybrid/PQC.','Endpoint':p['Destination'],'Priority':p['Priority']}]+findings
-        report_cbom=[{'Asset':'File','Value':filename,'Confidence':'High','Executive Note':'Input analyzed by RBI CBOM parser'},{'Asset':'Protocol','Value':p['TLS Version'],'Confidence':'High','Executive Note':'Final negotiated TLS version from ServerHello evidence'},{'Asset':'SNI','Value':p['SNI'] or 'Not visible','Confidence':'High' if p['SNI'] else 'Low','Executive Note':'Server Name Indication from ClientHello'},{'Asset':'Server IP','Value':p['Destination'].split(':')[0],'Confidence':'High','Executive Note':'Destination endpoint in capture'},{'Asset':'Cipher Suite','Value':p['Cipher Suite'],'Confidence':'High','Executive Note':'Final selected cipher suite from ServerHello'},{'Asset':'Key Exchange','Value':p['Key Exchange'],'Confidence':p['Confidence'],'Executive Note':'Final server-selected key exchange, not client offer'},{'Asset':'Client Offered PQ Hybrid','Value':p['Client Offered PQ Hybrid'],'Confidence':'Medium','Executive Note':'Client capability indicator only'},{'Asset':'Server Selected PQ Hybrid','Value':p['Server Selected PQ Hybrid'],'Confidence':'High','Executive Note':'Determines whether the session is PQC/hybrid ready'}]
+        report_cbom=[{'Asset':'File','Value':filename,'Confidence':'High','Executive Note':'Input analyzed by RBI QuBOM parser'},{'Asset':'Protocol','Value':p['TLS Version'],'Confidence':'High','Executive Note':'Final negotiated TLS version from ServerHello evidence'},{'Asset':'SNI','Value':p['SNI'] or 'Not visible','Confidence':'High' if p['SNI'] else 'Low','Executive Note':'Server Name Indication from ClientHello'},{'Asset':'Server IP','Value':p['Destination'].split(':')[0],'Confidence':'High','Executive Note':'Destination endpoint in capture'},{'Asset':'Cipher Suite','Value':p['Cipher Suite'],'Confidence':'High','Executive Note':'Final selected cipher suite from ServerHello'},{'Asset':'Key Exchange','Value':p['Key Exchange'],'Confidence':p['Confidence'],'Executive Note':'Final server-selected key exchange, not client offer'},{'Asset':'Client Offered PQ Hybrid','Value':p['Client Offered PQ Hybrid'],'Confidence':'Medium','Executive Note':'Client capability indicator only'},{'Asset':'Server Selected PQ Hybrid','Value':p['Server Selected PQ Hybrid'],'Confidence':'High','Executive Note':'Determines whether the session is PQC/hybrid ready'}]
     qv=sum(1 for r in cbom if r['Priority']=='Priority 2'); p1=sum(1 for r in cbom if r['Priority']=='Priority 1'); p3=sum(1 for r in cbom if r['Priority']=='Priority 3'); p4=sum(1 for r in cbom if r['Priority']=='Priority 4')
     overall='Priority 1' if p1 else 'Priority 2' if qv else 'Priority 3' if p3 or not cbom else 'Priority 4'
     posture='Broken/Deprecated' if p1 else 'Quantum Migration Required' if qv else 'Validation Required' if p3 or not cbom else 'PQC/Hybrid Ready'
     primary=cbom[0] if cbom else {}
     roadmap=[{'Phase':'0–30 Days','Title':'Evidence Baseline','Actions':'Repeat PCAP scans; validate TLS and certificate configuration; establish endpoint CBOM ownership'},{'Phase':'30–90 Days','Title':'Crypto-Agility Readiness','Actions':'Inventory classical asymmetric algorithms; define PQC transition policy; identify vendor/application support for hybrid TLS'},{'Phase':'90–180 Days','Title':'Hybrid PQ Pilot','Actions':'Pilot X25519 + ML-KEM-768 or equivalent hybrid key exchange; measure compatibility and performance'}]
-    return {'document':{'Tool Name':'RBI CBOM','Target Application':meta.get('target','Application'),'Scan ID':str(uuid.uuid4()),'Assessment Date':datetime.now().strftime('%B %d, %Y'),'Scanner Version':'RBI CBOM v9','Total Packets':len(packets),'PCAP SHA256':pcap_hash},'summary':{'Quantum Posture':posture,'Overall Priority':overall,'TLS Version':primary.get('TLS Version','Not observable'),'Cipher Suite':primary.get('Cipher Suite','Not observable'),'Key Exchange':primary.get('Key Exchange','Not observable'),'Target':primary.get('SNI',meta.get('target','Application')) if primary else meta.get('target','Application'),'TLS Sessions':len(cbom),'Priority 1':p1,'Priority 2':qv,'Priority 3':p3,'Priority 4':p4},'cbom':cbom,'report_cbom':report_cbom,'findings':findings,'flows':flows,'evidence':evidence,'algorithms':list(algos.values()),'compliance':[{'Framework':'NIST PQC Migration','Status':'PQC migration required' if qv else 'Monitor','Executive Note':'Classical ECC/RSA/DHE are Shor-vulnerable unless hybrid/PQ is negotiated.'},{'Framework':'RBI / Financial Sector Cyber Resilience','Status':'Board roadmap required' if qv else 'Technical indicator','Executive Note':'Board-level quantum-risk roadmap should be documented for critical endpoints.'},{'Framework':'ISO 27001 / 27002','Status':'Crypto inventory required','Executive Note':'Maintain CBOM evidence for cryptographic asset governance.'}],'roadmap':roadmap,'parser_logs':logs+[f'TLS sessions identified: {len(cbom)}','Stable priority model applied: P1 broken/deprecated, P2 Shor-vulnerable classical asymmetric, P3 validation required, P4 PQC/hybrid ready.'],'limitations':['Certificate chain, certificate expiry, SAN validation, issuer, signature algorithm, and weak certificate checks may require TLS key logs or external certificate scan integration.','This dashboard analyzes only visible traffic in the uploaded PCAP.','Compliance results are evidence indicators, not formal certification.']}
+    return {'document':{'Tool Name':'RBI QuBOM','Target Application':meta.get('target','Application'),'Scan ID':str(uuid.uuid4()),'Assessment Date':datetime.now().strftime('%B %d, %Y'),'Scanner Version':'RBI QuBOM v9','Total Packets':len(packets),'PCAP SHA256':pcap_hash},'summary':{'Quantum Posture':posture,'Overall Priority':overall,'TLS Version':primary.get('TLS Version','Not observable'),'Cipher Suite':primary.get('Cipher Suite','Not observable'),'Key Exchange':primary.get('Key Exchange','Not observable'),'Target':primary.get('SNI',meta.get('target','Application')) if primary else meta.get('target','Application'),'TLS Sessions':len(cbom),'Priority 1':p1,'Priority 2':qv,'Priority 3':p3,'Priority 4':p4},'cbom':cbom,'report_cbom':report_cbom,'findings':findings,'flows':flows,'evidence':evidence,'algorithms':list(algos.values()),'compliance':[{'Framework':'NIST PQC Migration','Status':'PQC migration required' if qv else 'Monitor','Executive Note':'Classical ECC/RSA/DHE are Shor-vulnerable unless hybrid/PQ is negotiated.'},{'Framework':'RBI / Financial Sector Cyber Resilience','Status':'Board roadmap required' if qv else 'Technical indicator','Executive Note':'Board-level quantum-risk roadmap should be documented for critical endpoints.'},{'Framework':'ISO 27001 / 27002','Status':'Crypto inventory required','Executive Note':'Maintain CBOM evidence for cryptographic asset governance.'}],'roadmap':roadmap,'parser_logs':logs+[f'TLS sessions identified: {len(cbom)}','Stable priority model applied: P1 broken/deprecated, P2 Shor-vulnerable classical asymmetric, P3 validation required, P4 PQC/hybrid ready.'],'limitations':['Certificate chain, certificate expiry, SAN validation, issuer, signature algorithm, and weak certificate checks may require TLS key logs or external certificate scan integration.','This dashboard analyzes only visible traffic in the uploaded PCAP.','Compliance results are evidence indicators, not formal certification.']}
 
 # Source code
 SOURCE_EXTENSIONS={'.py','.js','.jsx','.ts','.tsx','.java','.go','.rs','.cs','.cpp','.c','.h','.hpp','.php','.rb','.kt','.swift','.scala','.sh','.ps1','.yml','.yaml','.json','.xml','.toml','.gradle','.properties','.conf','.ini','.env','.lock','.txt','.md'}
@@ -328,9 +328,9 @@ def analyze_source(uploaded,target):
         if key not in seen: seen.add(key); dedup.append(r)
     sbom=dedup; scbom,findings=source_cbom(files)
     summary={'Target':target,'Files Scanned':len(files),'Manifest Files Found':len(manifests),'SBOM Components':len(sbom),'Source CBOM Findings':len(scbom),'Critical Crypto Findings':sum(1 for r in scbom if r['Priority']=='Priority 1'),'Quantum-Vulnerable Findings':sum(1 for r in scbom if r['Priority']=='Priority 2'),'Parsing Notes':'; '.join(errors) if errors else 'No parsing errors'}
-    integrity={'Tool':'RBI CBOM','Generated At':datetime.now().isoformat(),'Source Filename':uploaded.name,'Archive SHA256':hashlib.sha256(uploaded.getvalue()).hexdigest(),'SBOM Components':len(sbom),'CBOM Findings':len(scbom)}
-    standard={'bomFormat':'RBI-CBOM-Standard','specVersion':'1.0','serialNumber':'urn:uuid:'+str(uuid.uuid4()),'metadata':{'timestamp':datetime.now().isoformat(),'tool':'RBI CBOM','component':{'name':target,'type':'application'}},'components':[{'type':'library','name':r['Component'],'version':r['Version'],'ecosystem':r['Ecosystem'],'scope':r['Scope'],'purl':r['purl-like ID'],'evidence':{'source':r['Source File']}} for r in sbom],'cryptography':scbom}
-    spdx={'spdxVersion':'SPDX-2.3-like','name':target,'documentNamespace':'https://rbi-cbom.local/spdx/'+str(uuid.uuid4()),'creationInfo':{'created':datetime.now().isoformat(),'creators':['Tool: RBI CBOM']},'packages':[{'name':r['Component'],'versionInfo':r['Version'],'supplier':'NOASSERTION','downloadLocation':'NOASSERTION','externalRefs':[{'referenceType':'purl','referenceLocator':r['purl-like ID']}],'sourceFile':r['Source File']} for r in sbom]}
+    integrity={'Tool':'RBI QuBOM','Generated At':datetime.now().isoformat(),'Source Filename':uploaded.name,'Archive SHA256':hashlib.sha256(uploaded.getvalue()).hexdigest(),'SBOM Components':len(sbom),'CBOM Findings':len(scbom)}
+    standard={'bomFormat':'RBI-QuBOM-Standard','specVersion':'1.0','serialNumber':'urn:uuid:'+str(uuid.uuid4()),'metadata':{'timestamp':datetime.now().isoformat(),'tool':'RBI QuBOM','component':{'name':target,'type':'application'}},'components':[{'type':'library','name':r['Component'],'version':r['Version'],'ecosystem':r['Ecosystem'],'scope':r['Scope'],'purl':r['purl-like ID'],'evidence':{'source':r['Source File']}} for r in sbom],'cryptography':scbom}
+    spdx={'spdxVersion':'SPDX-2.3-like','name':target,'documentNamespace':'https://rbi-qubom.local/spdx/'+str(uuid.uuid4()),'creationInfo':{'created':datetime.now().isoformat(),'creators':['Tool: RBI QuBOM']},'packages':[{'name':r['Component'],'versionInfo':r['Version'],'supplier':'NOASSERTION','downloadLocation':'NOASSERTION','externalRefs':[{'referenceType':'purl','referenceLocator':r['purl-like ID']}],'sourceFile':r['Source File']} for r in sbom]}
     return {'summary':summary,'manifests':manifests,'sbom':sbom,'source_cbom':scbom,'source_findings':findings,'integrity':integrity,'standard_bom_json':standard,'spdx_like_json':spdx}
 
 
@@ -418,11 +418,11 @@ def html_report(report):
         finding_cards = "<div class='card'><b>No high-risk findings generated from parsed evidence.</b><p class='muted'>This does not prove full compliance or full PQC readiness.</p></div>"
 
     html_doc = """
-    <!doctype html><html><head><meta charset="utf-8"><title>RBI CBOM Board Report</title>{css}</head>
+    <!doctype html><html><head><meta charset="utf-8"><title>RBI QuBOM Board Report</title>{css}</head>
     <body><div class="wrap"><main class="hero">
       <div class="heroTop">
-        <span class="badge bblue">RBI CBOM</span><span class="badge bviolet">Board Report</span><span class="badge">PCAP Evidence Mode</span>
-        <h1>RBI CBOM Quantum Readiness Dashboard</h1>
+        <span class="badge bblue">RBI QuBOM</span><span class="badge bviolet">Board Report</span><span class="badge">PCAP Evidence Mode</span>
+        <h1>RBI QuBOM Quantum Readiness Dashboard</h1>
         <p class="sub">Executive board-ready report for TLS discovery, cryptographic bill of materials, compliance mapping, and harvest-now-decrypt-later quantum-risk assessment from uploaded PCAP files.</p>
       </div>
 
@@ -437,7 +437,7 @@ def html_report(report):
         <div class="two">
           <div class="card dark">
             <h3>Executive Assessment</h3>
-            <p>RBI CBOM analyzed the uploaded PCAP and identified {tls_sessions} TLS session(s). The final posture is <b>{posture}</b> with <b>{priority}</b>. Priority is based on final selected cryptographic evidence, not a changing score.</p>
+            <p>RBI QuBOM analyzed the uploaded PCAP and identified {tls_sessions} TLS session(s). The final posture is <b>{posture}</b> with <b>{priority}</b>. Priority is based on final selected cryptographic evidence, not a changing score.</p>
           </div>
           <div class="card risk">
             <h3>Board-Level Risk</h3>
@@ -484,7 +484,7 @@ def html_report(report):
         <h2>Limitations</h2>
         <ul>{limitations}</ul>
 
-        <p class="muted" style="font-size:12px">RBI CBOM Dashboard · Use results as evidence indicators. Full compliance sign-off may require TLS secrets, external certificate scans, endpoint configuration review, and manual validation.</p>
+        <p class="muted" style="font-size:12px">RBI QuBOM Dashboard · Use results as evidence indicators. Full compliance sign-off may require TLS secrets, external certificate scans, endpoint configuration review, and manual validation.</p>
       </section>
     </main></div></body></html>
     """.format(
@@ -535,11 +535,11 @@ def source_html_report(source_report):
     parser_note = s.get("Parsing Notes", "")
 
     html_doc = """
-    <!doctype html><html><head><meta charset="utf-8"><title>RBI CBOM Source Board Report</title>{css}</head>
+    <!doctype html><html><head><meta charset="utf-8"><title>RBI QuBOM Source Board Report</title>{css}</head>
     <body><div class="wrap"><main class="hero">
       <div class="heroTop">
-        <span class="badge bblue">RBI CBOM</span><span class="badge bviolet">Source SBOM + CBOM</span><span class="badge">Board Report</span>
-        <h1>RBI CBOM Source Code SBOM & CBOM Report</h1>
+        <span class="badge bblue">RBI QuBOM</span><span class="badge bviolet">Source SBOM + CBOM</span><span class="badge">Board Report</span>
+        <h1>RBI QuBOM Source Code SBOM & CBOM Report</h1>
         <p class="sub">Executive board-ready report for dependency SBOM, source-code cryptography CBOM, crypto-risk prioritization, and remediation planning.</p>
       </div>
 
@@ -554,7 +554,7 @@ def source_html_report(source_report):
         <div class="two">
           <div class="card dark">
             <h3>Executive Assessment</h3>
-            <p>RBI CBOM scanned <b>{files}</b> source file(s), identified <b>{components}</b> SBOM component(s), and found <b>{cbom_findings}</b> source-code cryptography finding(s) for <b>{target}</b>.</p>
+            <p>RBI QuBOM scanned <b>{files}</b> source file(s), identified <b>{components}</b> SBOM component(s), and found <b>{cbom_findings}</b> source-code cryptography finding(s) for <b>{target}</b>.</p>
           </div>
           <div class="card risk">
             <h3>Board-Level Risk</h3>
@@ -587,7 +587,7 @@ def source_html_report(source_report):
         <h2>Parser Notes</h2>
         <div class="console">{parser_note}</div>
 
-        <p class="muted" style="font-size:12px">RBI CBOM Source Report · Static source analysis can miss dynamically generated dependencies, vendored binaries, encrypted files, and runtime-resolved cryptography.</p>
+        <p class="muted" style="font-size:12px">RBI QuBOM Source Report · Static source analysis can miss dynamically generated dependencies, vendored binaries, encrypted files, and runtime-resolved cryptography.</p>
       </section>
     </main></div></body></html>
     """.format(
@@ -613,13 +613,13 @@ def source_html_report(source_report):
     return html_doc
 
 # UI
-st.sidebar.title('🛡️ RBI CBOM')
+st.sidebar.title('🛡️ RBI QuBOM')
 st.sidebar.caption('PCAP CBOM + Source-code SBOM/CBOM with stable quantum priority model.')
 target=st.sidebar.text_input('Target Application','RBI-Website')
 unit=st.sidebar.text_input('Business Unit','Network')
 classification=st.sidebar.selectbox('Classification',['CONFIDENTIAL','INTERNAL','RESTRICTED','PUBLIC'],0)
 
-st.markdown("""<div class="hero"><div class="heroTop"><div><span class="badge bblue">RBI CBOM</span><span class="badge bviolet">PCAP + Source Code</span><span class="badge">Stable Priority Model</span><h1>RBI CBOM Board Dashboard</h1><p class="sub">Generate PCAP-based cryptographic CBOM, source-code cryptography CBOM, and source-code SBOM from one home page. Quantum priority is defined once and applied consistently.</p></div><div class="uploadBox"><b>Choose analysis type below</b><p class="muted">PCAP CBOM and Source SBOM/CBOM are both available on the home page.</p></div></div></div>""", unsafe_allow_html=True)
+st.markdown("""<div class="hero"><div class="heroTop"><div><span class="badge bblue">RBI QuBOM</span><span class="badge bviolet">PCAP + Source Code</span><span class="badge">Stable Priority Model</span><h1>RBI QuBOM Board Dashboard</h1><p class="sub">Generate PCAP-based cryptographic CBOM, source-code cryptography CBOM, and source-code SBOM from one home page. Quantum priority is defined once and applied consistently.</p></div><div class="uploadBox"><b>Choose analysis type below</b><p class="muted">PCAP CBOM and Source SBOM/CBOM are both available on the home page.</p></div></div></div>""", unsafe_allow_html=True)
 
 st.markdown('<div class="sectionHead"><div><h2>Quantum Priority Definition</h2><p class="desc">This fixed model prevents the quantum-readiness parameter from changing unpredictably across reports.</p></div></div>', unsafe_allow_html=True)
 st.dataframe(priority_definition(), use_container_width=True, hide_index=True)
@@ -630,7 +630,7 @@ with home_tabs[0]:
     if up:
         report=analyze_pcap_bytes(up.read(),up.name,{'target':target,'business_unit':unit,'classification':classification}); s=report['summary']
         st.markdown(f"""<div class="grid4"><div class="metric"><div class="label">Quantum Posture</div><div class="val">{s['Quantum Posture']}</div><div class="note">{badge(s['Overall Priority'])}</div></div><div class="metric"><div class="label">TLS Version</div><div class="val">{s['TLS Version']}</div></div><div class="metric"><div class="label">Cipher Suite</div><div class="val" style="font-size:17px">{s['Cipher Suite']}</div></div><div class="metric"><div class="label">Key Exchange</div><div class="val">{s['Key Exchange'].replace('secp256r1 / ','')}</div></div></div>""", unsafe_allow_html=True)
-        st.markdown(f"""<div class="two"><div class="card dark"><h3>Executive Assessment</h3><p>RBI CBOM identified {s['TLS Sessions']} TLS sessions. The final posture is <b>{s['Quantum Posture']}</b> with <b>{s['Overall Priority']}</b>. Priority is based on final selected cryptographic evidence, not a changing score.</p><div class="kpis"><div class="kpi"><small>Target</small><strong>{s['Target']}</strong></div><div class="kpi"><small>Priority 2</small><strong>{s['Priority 2']}</strong></div><div class="kpi"><small>Priority 3</small><strong>{s['Priority 3']}</strong></div></div></div><div class="card risk"><h3>Board-Level Risk</h3><p>Classical ECDHE/X25519/P-256/RSA/DHE/ECDSA remain quantum-vulnerable unless the server actually negotiates hybrid/PQC key exchange.</p>{badge(s['Overall Priority'])}</div></div>""", unsafe_allow_html=True)
+        st.markdown(f"""<div class="two"><div class="card dark"><h3>Executive Assessment</h3><p>RBI QuBOM identified {s['TLS Sessions']} TLS sessions. The final posture is <b>{s['Quantum Posture']}</b> with <b>{s['Overall Priority']}</b>. Priority is based on final selected cryptographic evidence, not a changing score.</p><div class="kpis"><div class="kpi"><small>Target</small><strong>{s['Target']}</strong></div><div class="kpi"><small>Priority 2</small><strong>{s['Priority 2']}</strong></div><div class="kpi"><small>Priority 3</small><strong>{s['Priority 3']}</strong></div></div></div><div class="card risk"><h3>Board-Level Risk</h3><p>Classical ECDHE/X25519/P-256/RSA/DHE/ECDSA remain quantum-vulnerable unless the server actually negotiates hybrid/PQC key exchange.</p>{badge(s['Overall Priority'])}</div></div>""", unsafe_allow_html=True)
         pc_tabs=st.tabs(['Report CBOM','Technical CBOM','TLS Flows','Findings','Compliance','Roadmap','Evidence + Logs','Exports'])
         with pc_tabs[0]: st.dataframe(pd.DataFrame(report['report_cbom']),use_container_width=True,hide_index=True)
         with pc_tabs[1]: st.dataframe(pd.DataFrame(report['cbom']),use_container_width=True,hide_index=True)
@@ -642,10 +642,10 @@ with home_tabs[0]:
             st.dataframe(pd.DataFrame(report['evidence']),use_container_width=True,hide_index=True); st.markdown(f"<div class='console'>{chr(10).join(report['parser_logs'])}</div>",unsafe_allow_html=True)
             for x in report['limitations']: st.write('- '+x)
         with pc_tabs[7]:
-            st.download_button('Download Board HTML Report',html_report(report),'rbi_cbom_board_report.html','text/html')
-            st.download_button('Download Full JSON Report',json.dumps(report,indent=2),'rbi_cbom_report.json','application/json')
-            st.download_button('Download Report CBOM CSV',pd.DataFrame(report['report_cbom']).to_csv(index=False),'rbi_cbom_report.csv','text/csv')
-            st.download_button('Download Technical CBOM CSV',pd.DataFrame(report['cbom']).to_csv(index=False),'rbi_cbom_technical.csv','text/csv')
+            st.download_button('Download Board HTML Report',html_report(report),'rbi_qubom_board_report.html','text/html')
+            st.download_button('Download Full JSON Report',json.dumps(report,indent=2),'rbi_qubom_report.json','application/json')
+            st.download_button('Download Report CBOM CSV',pd.DataFrame(report['report_cbom']).to_csv(index=False),'rbi_qubom_report.csv','text/csv')
+            st.download_button('Download Technical CBOM CSV',pd.DataFrame(report['cbom']).to_csv(index=False),'rbi_qubom_technical.csv','text/csv')
     else:
         st.info('Upload a PCAP to generate network cryptographic CBOM.')
 
@@ -661,13 +661,13 @@ with home_tabs[1]:
         with st_tabs[2]: st.dataframe(pd.DataFrame(sr['source_cbom']),use_container_width=True,hide_index=True)
         with st_tabs[3]: st.dataframe(pd.DataFrame(sr['source_findings']),use_container_width=True,hide_index=True)
         with st_tabs[4]:
-            st.download_button('Download Source Board HTML Report',source_html_report(sr),'rbi_cbom_source_board_report.html','text/html')
-            st.download_button('Download Source SBOM CSV',pd.DataFrame(sr['sbom']).to_csv(index=False),'rbi_cbom_source_sbom.csv','text/csv')
-            st.download_button('Download Source CBOM CSV',pd.DataFrame(sr['source_cbom']).to_csv(index=False),'rbi_cbom_source_cbom.csv','text/csv')
-            st.download_button('Download Standard BOM JSON',json.dumps(sr['standard_bom_json'],indent=2),'rbi_cbom_standard_bom.json','application/json')
-            st.download_button('Download SPDX-like JSON',json.dumps(sr['spdx_like_json'],indent=2),'rbi_cbom_spdx_like.json','application/json')
-            st.download_button('Download BOM Integrity Manifest',json.dumps(sr['integrity'],indent=2),'rbi_cbom_integrity_manifest.json','application/json')
+            st.download_button('Download Source Board HTML Report',source_html_report(sr),'rbi_qubom_source_board_report.html','text/html')
+            st.download_button('Download Source SBOM CSV',pd.DataFrame(sr['sbom']).to_csv(index=False),'rbi_qubom_source_sbom.csv','text/csv')
+            st.download_button('Download Source CBOM CSV',pd.DataFrame(sr['source_cbom']).to_csv(index=False),'rbi_qubom_source_cbom.csv','text/csv')
+            st.download_button('Download Standard BOM JSON',json.dumps(sr['standard_bom_json'],indent=2),'rbi_qubom_standard_bom.json','application/json')
+            st.download_button('Download SPDX-like JSON',json.dumps(sr['spdx_like_json'],indent=2),'rbi_qubom_spdx_like.json','application/json')
+            st.download_button('Download BOM Integrity Manifest',json.dumps(sr['integrity'],indent=2),'rbi_qubom_integrity_manifest.json','application/json')
     else:
         st.info('Upload a source archive or manifest to generate source-code SBOM and CBOM.')
 
-st.caption('RBI CBOM v9 · Stable priority model · PCAP CBOM + Source-code SBOM/CBOM · Evidence indicators only, not formal compliance certification.')
+st.caption('RBI QuBOM v9 · Stable priority model · PCAP CBOM + Source-code SBOM/CBOM · Evidence indicators only, not formal compliance certification.')
