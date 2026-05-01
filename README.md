@@ -57,3 +57,14 @@ Exports added:
 - Source Vulnerabilities CSV
 - Source Vulnerability Roadmap CSV
 - Vulnerabilities included in Standard BOM JSON
+
+
+## v12 comprehensive vulnerability engine
+
+Fixes:
+- Resolved `NameError: name '_safe_text' is not defined`.
+
+Enhanced vulnerability analysis:
+- Broader detection across injection, secrets, crypto, TLS, JWT, SSRF, XSS, deserialization, path traversal, file upload, logging/privacy, CORS, headers, supply-chain, and security misconfiguration.
+- Adds impact, exploit scenario, validation guidance, code context, confidence, remediation priority, and board-level roadmap.
+- Adds vulnerability recommendation playbook grouped by category.

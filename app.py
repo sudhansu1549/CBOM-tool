@@ -223,6 +223,9 @@ CRYPTO_PATTERNS=[('RSA',r'\bRSA\b|RS256|RS384|RS512|generate_private_key|PKCS1|P
 def safe_text(data,limit=2_000_000):
     try: return data[:limit].decode('utf-8','ignore') if isinstance(data,bytes) else str(data)[:limit]
     except Exception: return ''
+def _safe_text(data, limit=2_000_000):
+    return safe_text(data, limit)
+
 def archive_files(uploaded):
     name=uploaded.name; raw=uploaded.getvalue(); lower=name.lower(); files=[]; errors=[]
     try:
@@ -330,11 +333,12 @@ def analyze_source(uploaded,target):
     vulnerabilities=analyze_source_vulnerabilities_from_files(files)
     vulnerability_summary=summarize_vulnerabilities(vulnerabilities)
     vulnerability_roadmap=source_vulnerability_roadmap(vulnerabilities)
+    vulnerability_recommendations=vulnerability_recommendations_by_category(vulnerabilities)
     summary={'Target':target,'Files Scanned':len(files),'Manifest Files Found':len(manifests),'SBOM Components':len(sbom),'Source CBOM Findings':len(scbom),'Critical Crypto Findings':sum(1 for r in scbom if r['Priority']=='Priority 1'),'Quantum-Vulnerable Findings':sum(1 for r in scbom if r['Priority']=='Priority 2'),'Parsing Notes':'; '.join(errors) if errors else 'No parsing errors'}
     integrity={'Tool':'RBI QuBOM','Generated At':datetime.now().isoformat(),'Source Filename':uploaded.name,'Archive SHA256':hashlib.sha256(uploaded.getvalue()).hexdigest(),'SBOM Components':len(sbom),'CBOM Findings':len(scbom)}
     standard={'bomFormat':'RBI-QuBOM-Standard','specVersion':'1.0','serialNumber':'urn:uuid:'+str(uuid.uuid4()),'metadata':{'timestamp':datetime.now().isoformat(),'tool':'RBI QuBOM','component':{'name':target,'type':'application'}},'components':[{'type':'library','name':r['Component'],'version':r['Version'],'ecosystem':r['Ecosystem'],'scope':r['Scope'],'purl':r['purl-like ID'],'evidence':{'source':r['Source File']}} for r in sbom],'cryptography':scbom,'vulnerabilities':vulnerabilities}
     spdx={'spdxVersion':'SPDX-2.3-like','name':target,'documentNamespace':'https://rbi-qubom.local/spdx/'+str(uuid.uuid4()),'creationInfo':{'created':datetime.now().isoformat(),'creators':['Tool: RBI QuBOM']},'packages':[{'name':r['Component'],'versionInfo':r['Version'],'supplier':'NOASSERTION','downloadLocation':'NOASSERTION','externalRefs':[{'referenceType':'purl','referenceLocator':r['purl-like ID']}],'sourceFile':r['Source File']} for r in sbom]}
-    return {'summary':summary,'manifests':manifests,'sbom':sbom,'source_cbom':scbom,'source_findings':findings,'vulnerabilities':vulnerabilities,'vulnerability_summary':vulnerability_summary,'vulnerability_roadmap':vulnerability_roadmap,'integrity':integrity,'standard_bom_json':standard,'spdx_like_json':spdx}
+    return {'summary':summary,'manifests':manifests,'sbom':sbom,'source_cbom':scbom,'source_findings':findings,'vulnerabilities':vulnerabilities,'vulnerability_summary':vulnerability_summary,'vulnerability_roadmap':vulnerability_roadmap,'vulnerability_recommendations':vulnerability_recommendations,'integrity':integrity,'standard_bom_json':standard,'spdx_like_json':spdx}
 
 
 def _html_escape(x):
@@ -584,6 +588,9 @@ def source_html_report(source_report):
         <h2>Source Vulnerability Remediation Roadmap</h2>
         {source_vuln_roadmap_table}
 
+        <h2>Vulnerability Recommendation Playbook</h2>
+        {source_vuln_playbook_table}
+
         <h2>Manifest Files Detected</h2>
         {manifest_table}
 
@@ -612,6 +619,7 @@ def source_html_report(source_report):
         source_cbom_table=_board_table(source_report.get("source_cbom", [])),
         source_vuln_table=_board_table(source_report.get("vulnerabilities", [])),
         source_vuln_roadmap_table=_board_table(source_report.get("vulnerability_roadmap", [])),
+        source_vuln_playbook_table=_board_table(source_report.get("vulnerability_recommendations", [])),
         manifest_table=_board_table(manifest_rows),
         roadmap_table=_board_table([
             {"Phase": "0–30 Days", "Title": "Dependency Baseline", "Actions": "Validate manifests, generate SBOM, assign ownership for critical packages."},
@@ -625,251 +633,638 @@ def source_html_report(source_report):
 
 
 
+
 # ============================================================
-# Source Code Vulnerability Analysis
+# Source Code Vulnerability Analysis — RBI QuBOM v12
+# Comprehensive static analysis engine with board-ready recommendations.
 # ============================================================
 
-VULN_PATTERNS = [
+def _safe_text(data, limit=2_000_000):
+    try:
+        return safe_text(data, limit)
+    except NameError:
+        try:
+            if isinstance(data, bytes):
+                return data[:limit].decode("utf-8", "ignore")
+            return str(data)[:limit]
+        except Exception:
+            return ""
+
+def _line_no(text, idx):
+    try:
+        return text[:idx].count("\n") + 1
+    except Exception:
+        return ""
+
+def _safe_snippet(text, start, end, radius=110):
+    s = max(0, start - radius)
+    e = min(len(text), end + radius)
+    snippet = text[s:e].replace("\n", " ").replace("\r", " ")
+    # redact common secret values
+    snippet = re.sub(r"(?i)(password|passwd|pwd|secret|token|api[_-]?key|access[_-]?key|private[_-]?key)(\s*[:=]\s*)['\"][^'\"]+['\"]", r"\1\2'[REDACTED]'", snippet)
+    return snippet[:320]
+
+def _severity_rank(sev):
+    return {"Critical": 5, "High": 4, "Medium": 3, "Low": 2, "Info": 1}.get(str(sev), 0)
+
+def _confidence_rank(conf):
+    return {"High": 3, "Medium": 2, "Low": 1}.get(str(conf), 0)
+
+def _file_context(path):
+    p = path.lower()
+    if any(x in p for x in ["test/", "tests/", "__tests__", "spec/", ".spec.", ".test."]):
+        return "Test"
+    if any(x in p for x in ["config", ".env", "settings", "application.yml", "application.properties"]):
+        return "Configuration"
+    if any(x in p for x in ["controller", "route", "api", "handler", "view"]):
+        return "Input-facing"
+    if any(x in p for x in ["auth", "login", "jwt", "session", "oauth"]):
+        return "Authentication"
+    if any(x in p for x in ["payment", "bank", "account", "kyc", "customer", "pii"]):
+        return "Sensitive business logic"
+    return "Application"
+
+VULN_RULES = [
+    # Injection
     {
         "Category": "Injection",
-        "Finding": "Possible SQL injection",
-        "Pattern": r"(execute|query|rawQuery|createQuery)\s*\([^\\n)]*(\+|%|format\(|f['\"]|\\$\\{)",
+        "Finding": "Possible SQL injection through dynamic query construction",
+        "Patterns": [
+            r"(execute|executemany|query|rawQuery|createQuery|prepareStatement)\s*\([^;\n]*(\+|%|\.format\(|f['\"]|\$\{)",
+            r"SELECT\s+[^;\n]+(\+|%|\.format\(|f['\"]|\$\{)",
+            r"(WHERE|ORDER BY|LIMIT)\s+[^;\n]*(\+|%|\.format\(|f['\"]|\$\{)"
+        ],
         "Severity": "Critical",
         "Confidence": "Medium",
         "CWE": "CWE-89",
         "OWASP": "A03: Injection",
-        "Recommendation": "Use parameterized queries, prepared statements, ORM bind parameters, and strict input validation. Never concatenate user-controlled values into SQL."
+        "Impact": "An attacker may read, modify, or delete database records, bypass authentication, or exfiltrate sensitive data.",
+        "Exploit Scenario": "User-controlled input reaches a SQL string that is built using concatenation/interpolation.",
+        "Recommendation": "Use prepared statements or ORM bind parameters. Never concatenate user input into SQL. Validate allowlisted columns for dynamic ORDER BY/LIMIT. Add query-level tests for malicious payloads.",
+        "Validation": "Search for raw query execution and confirm all external values are passed as parameters, not string fragments."
+    },
+    {
+        "Category": "Injection",
+        "Finding": "Possible NoSQL injection",
+        "Patterns": [
+            r"(findOne|find|updateOne|deleteOne|aggregate)\s*\([^;\n]*(req\.|request\.|params|query|body)",
+            r"\$where\s*:",
+            r"\$regex\s*:\s*(req\.|request\.|params|query|body)"
+        ],
+        "Severity": "High",
+        "Confidence": "Medium",
+        "CWE": "CWE-943",
+        "OWASP": "A03: Injection",
+        "Impact": "Attackers may alter query logic, bypass authorization filters, or enumerate records.",
+        "Exploit Scenario": "Untrusted request objects are passed directly into MongoDB-style query operators.",
+        "Recommendation": "Validate and map user inputs into an explicit schema. Reject query operators from untrusted objects. Use allowlists for filter fields.",
+        "Validation": "Confirm request bodies are not directly passed to database query APIs."
     },
     {
         "Category": "Command Execution",
         "Finding": "Possible OS command injection",
-        "Pattern": r"(os\.system|subprocess\.Popen|subprocess\.call|subprocess\.run|exec\(|Runtime\.getRuntime\(\)\.exec|child_process\.exec)\s*\(",
+        "Patterns": [
+            r"(os\.system|subprocess\.Popen|subprocess\.call|subprocess\.run|commands\.getoutput)\s*\(",
+            r"(Runtime\.getRuntime\(\)\.exec|ProcessBuilder)\s*\(",
+            r"(child_process\.exec|execSync|spawnSync)\s*\("
+        ],
         "Severity": "Critical",
         "Confidence": "Medium",
         "CWE": "CWE-78",
         "OWASP": "A03: Injection",
-        "Recommendation": "Avoid shell execution. Use safe APIs with argument arrays, strict allowlists, and never pass unsanitized user input to command execution functions."
+        "Impact": "Attackers may execute arbitrary system commands under the application privilege context.",
+        "Exploit Scenario": "User input is included in shell commands or process arguments.",
+        "Recommendation": "Avoid shell execution. Use safe library APIs. If process execution is necessary, pass arguments as arrays, disable shell mode, and enforce strict allowlists.",
+        "Validation": "Confirm no user-controlled values reach command strings or shell=True execution."
     },
     {
         "Category": "Code Execution",
-        "Finding": "Dynamic code execution detected",
-        "Pattern": r"\b(eval|exec)\s*\(|new Function\s*\(",
+        "Finding": "Dynamic code evaluation",
+        "Patterns": [
+            r"\b(eval|exec)\s*\(",
+            r"new\s+Function\s*\(",
+            r"vm\.runIn(NewContext|ThisContext|Context)\s*\(",
+            r"ScriptEngineManager|GroovyShell|BeanShell"
+        ],
         "Severity": "Critical",
         "Confidence": "Medium",
         "CWE": "CWE-94",
         "OWASP": "A03: Injection",
-        "Recommendation": "Remove dynamic evaluation. Replace with safe parsing, template engines with sandboxing, or explicit dispatch maps."
+        "Impact": "Untrusted data may become executable code, leading to full application compromise.",
+        "Exploit Scenario": "A string constructed from external input is evaluated as code.",
+        "Recommendation": "Remove dynamic evaluation. Use explicit dispatch maps, parsers, or sandboxed expression evaluators with strict grammar.",
+        "Validation": "Confirm dynamic evaluators are not reachable from user-controlled inputs."
     },
+
+    # Secrets and credentials
     {
         "Category": "Secrets",
         "Finding": "Hardcoded secret or credential",
-        "Pattern": r"(?i)(api[_-]?key|secret|password|passwd|pwd|token|private[_-]?key|access[_-]?key)\s*[:=]\s*['\"][^'\"]{8,}['\"]",
+        "Patterns": [
+            r"(?i)(api[_-]?key|secret|password|passwd|pwd|token|private[_-]?key|access[_-]?key|client[_-]?secret)\s*[:=]\s*['\"][^'\"]{8,}['\"]",
+            r"(?i)AKIA[0-9A-Z]{16}",
+            r"(?i)-----BEGIN (RSA |EC |DSA |OPENSSH )?PRIVATE KEY-----",
+            r"(?i)xox[baprs]-[0-9A-Za-z-]{10,}",
+            r"(?i)gh[pousr]_[A-Za-z0-9_]{20,}"
+        ],
         "Severity": "High",
         "Confidence": "High",
         "CWE": "CWE-798",
         "OWASP": "A07: Identification and Authentication Failures",
-        "Recommendation": "Move secrets to a vault or secret manager, rotate exposed credentials, and add pre-commit secret scanning."
+        "Impact": "Leaked credentials can allow unauthorized access to cloud accounts, APIs, databases, or production systems.",
+        "Exploit Scenario": "An attacker with repository access extracts and reuses embedded credentials.",
+        "Recommendation": "Move secrets to a vault or secret manager. Rotate exposed values immediately. Add pre-commit and CI secret scanning.",
+        "Validation": "Verify that identified credentials are revoked/rotated and no secrets remain in version history."
     },
     {
+        "Category": "Secrets",
+        "Finding": "Potential sensitive environment variable exposure",
+        "Patterns": [
+            r"(?i)(print|console\.log|logger\.(info|debug|warn|error))\s*\([^;\n]*(process\.env|os\.environ|System\.getenv)",
+            r"(?i)(dotenv|load_dotenv)\("
+        ],
+        "Severity": "Medium",
+        "Confidence": "Low",
+        "CWE": "CWE-532",
+        "OWASP": "A09: Security Logging and Monitoring Failures",
+        "Impact": "Sensitive values may be written to logs, telemetry, or error messages.",
+        "Exploit Scenario": "Debug logs expose tokens, passwords, connection strings, or cloud credentials.",
+        "Recommendation": "Mask secrets in logs. Use structured logging with redaction filters. Disable verbose environment dumps.",
+        "Validation": "Review logging statements and confirm production log redaction policies."
+    },
+
+    # Cryptography
+    {
         "Category": "Cryptography",
-        "Finding": "Weak hashing algorithm",
-        "Pattern": r"(?i)(md5|sha1)\s*\(|MessageDigest\.getInstance\(['\"](MD5|SHA-1)['\"]\)",
+        "Finding": "Weak hash algorithm",
+        "Patterns": [
+            r"(?i)\b(md5|sha1)\s*\(",
+            r"MessageDigest\.getInstance\(['\"](MD5|SHA-1)['\"]\)",
+            r"hashlib\.(md5|sha1)\("
+        ],
         "Severity": "High",
         "Confidence": "High",
         "CWE": "CWE-327",
         "OWASP": "A02: Cryptographic Failures",
-        "Recommendation": "Replace MD5/SHA-1 with SHA-256/SHA-384/SHA-512 for hashing. For passwords, use Argon2id, bcrypt, scrypt, or PBKDF2 with strong parameters."
+        "Impact": "Weak hashing may allow collision attacks, integrity bypasses, or weak password protection.",
+        "Exploit Scenario": "MD5/SHA-1 is used for signatures, integrity checks, or password storage.",
+        "Recommendation": "Use SHA-256/SHA-384/SHA-512 for integrity. For passwords, use Argon2id, bcrypt, scrypt, or PBKDF2 with strong parameters and salts.",
+        "Validation": "Identify the use case. Confirm weak hashes are not used for security-sensitive integrity, signing, or password storage."
     },
     {
         "Category": "Cryptography",
-        "Finding": "Insecure TLS/SSL version",
-        "Pattern": r"(?i)(TLSv1\.0|TLSv1\.1|SSLv2|SSLv3|PROTOCOL_TLSv1\b|PROTOCOL_TLSv1_1)",
+        "Finding": "Weak cipher or insecure mode",
+        "Patterns": [
+            r"(?i)(DES|3DES|DESede|TripleDES|RC4|ARC4)",
+            r"(?i)(AES/ECB|ECB mode|MODE_ECB|AES\.MODE_ECB)"
+        ],
+        "Severity": "High",
+        "Confidence": "Medium",
+        "CWE": "CWE-327",
+        "OWASP": "A02: Cryptographic Failures",
+        "Impact": "Weak ciphers or ECB mode can expose confidential data or enable cryptographic attacks.",
+        "Exploit Scenario": "Sensitive data is encrypted with obsolete algorithms or deterministic block mode.",
+        "Recommendation": "Use AEAD modes such as AES-GCM or ChaCha20-Poly1305. Avoid ECB, RC4, DES, and 3DES.",
+        "Validation": "Confirm cipher configuration in runtime crypto providers and test encrypted payload compatibility after migration."
+    },
+    {
+        "Category": "Cryptography",
+        "Finding": "Hardcoded cryptographic key or IV",
+        "Patterns": [
+            r"(?i)(iv|nonce|salt|key)\s*[:=]\s*['\"][A-Za-z0-9+/=]{8,}['\"]",
+            r"SecretKeySpec\s*\(\s*['\"]",
+            r"IvParameterSpec\s*\(\s*['\"]"
+        ],
+        "Severity": "High",
+        "Confidence": "Medium",
+        "CWE": "CWE-321",
+        "OWASP": "A02: Cryptographic Failures",
+        "Impact": "Hardcoded keys/IVs can allow decryption, replay, or pattern leakage.",
+        "Exploit Scenario": "An attacker extracts static key material from source or binaries.",
+        "Recommendation": "Generate keys securely, store them in KMS/HSM/secret vaults, rotate keys, and use random nonces/IVs per encryption operation.",
+        "Validation": "Confirm key material is externalized and rotation procedures exist."
+    },
+    {
+        "Category": "Transport Security",
+        "Finding": "Insecure TLS or SSL version",
+        "Patterns": [
+            r"(?i)(TLSv1\.0|TLSv1\.1|SSLv2|SSLv3|PROTOCOL_TLSv1\b|PROTOCOL_TLSv1_1|sslProtocol\s*=\s*['\"]TLSv1)"
+        ],
         "Severity": "High",
         "Confidence": "High",
         "CWE": "CWE-326",
         "OWASP": "A02: Cryptographic Failures",
-        "Recommendation": "Disable SSL, TLS 1.0, and TLS 1.1. Enforce TLS 1.2 minimum and prefer TLS 1.3 with strong cipher suites."
-    },
-    {
-        "Category": "Cryptography",
-        "Finding": "Weak cipher or mode",
-        "Pattern": r"(?i)(DES|3DES|RC4|ECB|AES/ECB|DESede)",
-        "Severity": "High",
-        "Confidence": "Medium",
-        "CWE": "CWE-327",
-        "OWASP": "A02: Cryptographic Failures",
-        "Recommendation": "Use AEAD ciphers such as AES-GCM or ChaCha20-Poly1305. Avoid ECB, RC4, DES, and 3DES."
-    },
-    {
-        "Category": "Cryptography",
-        "Finding": "Classical asymmetric cryptography requiring PQC migration planning",
-        "Pattern": r"(?i)(RSA|ECDSA|ECDH|DiffieHellman|secp256r1|prime256v1|x25519|P-256)",
-        "Severity": "Medium",
-        "Confidence": "Medium",
-        "CWE": "PQC-READINESS",
-        "OWASP": "Cryptographic Agility",
-        "Recommendation": "Track use of RSA/ECC/DH and plan crypto-agility. For long-term confidentiality, pilot hybrid/PQC key establishment such as ML-KEM where platform support exists."
-    },
-    {
-        "Category": "Deserialization",
-        "Finding": "Unsafe deserialization",
-        "Pattern": r"(?i)(pickle\.loads|yaml\.load\s*\(|ObjectInputStream|readObject\(|unserialize\(|Marshal\.load)",
-        "Severity": "Critical",
-        "Confidence": "Medium",
-        "CWE": "CWE-502",
-        "OWASP": "A08: Software and Data Integrity Failures",
-        "Recommendation": "Avoid unsafe deserialization of untrusted data. Use safe loaders, signed data, strict schemas, and allowlisted types."
-    },
-    {
-        "Category": "Path Traversal",
-        "Finding": "Possible path traversal",
-        "Pattern": r"(?i)(open|FileInputStream|send_file|sendFile|readFile)\s*\([^\\n)]*(request|req\.|params|query|input|filename|path)",
-        "Severity": "High",
-        "Confidence": "Low",
-        "CWE": "CWE-22",
-        "OWASP": "A01: Broken Access Control",
-        "Recommendation": "Normalize paths, enforce base-directory checks, use allowlists, and reject '../' or absolute-path input."
-    },
-    {
-        "Category": "XSS",
-        "Finding": "Possible reflected/stored XSS sink",
-        "Pattern": r"(?i)(innerHTML|dangerouslySetInnerHTML|document\.write|html_safe|Markup\(|render_template_string)",
-        "Severity": "High",
-        "Confidence": "Medium",
-        "CWE": "CWE-79",
-        "OWASP": "A03: Injection",
-        "Recommendation": "Use framework auto-escaping, sanitize HTML with an approved sanitizer, and avoid writing untrusted input into HTML sinks."
-    },
-    {
-        "Category": "Authentication",
-        "Finding": "JWT verification may be disabled or weak",
-        "Pattern": r"(?i)(verify\s*:\s*false|algorithms\s*:\s*\[\s*['\"]none['\"]|jwt\.decode\([^\\n)]*verify\s*=\s*False)",
-        "Severity": "Critical",
-        "Confidence": "Medium",
-        "CWE": "CWE-347",
-        "OWASP": "A07: Identification and Authentication Failures",
-        "Recommendation": "Always verify JWT signatures, enforce allowed algorithms server-side, reject 'none', and validate issuer, audience, expiry, and key rotation."
-    },
-    {
-        "Category": "Security Misconfiguration",
-        "Finding": "Debug mode enabled",
-        "Pattern": r"(?i)(debug\s*=\s*True|DEBUG\s*=\s*True|app\.run\([^\\n)]*debug\s*=\s*True|NODE_ENV\s*=\s*['\"]development)",
-        "Severity": "Medium",
-        "Confidence": "High",
-        "CWE": "CWE-489",
-        "OWASP": "A05: Security Misconfiguration",
-        "Recommendation": "Disable debug mode in production. Use environment-specific configuration and secure error handling."
-    },
-    {
-        "Category": "CORS",
-        "Finding": "Overly permissive CORS",
-        "Pattern": r"(?i)(Access-Control-Allow-Origin['\"]?\s*[:=]\s*['\"]\*|cors\(\s*\)|origin\s*:\s*['\"]\*)",
-        "Severity": "Medium",
-        "Confidence": "Medium",
-        "CWE": "CWE-942",
-        "OWASP": "A05: Security Misconfiguration",
-        "Recommendation": "Restrict CORS origins to trusted domains. Avoid wildcard origins for authenticated or sensitive APIs."
+        "Impact": "Legacy protocols expose traffic to known downgrade and cryptographic attacks.",
+        "Exploit Scenario": "Clients negotiate legacy TLS/SSL due to permissive configuration.",
+        "Recommendation": "Disable SSL, TLS 1.0, and TLS 1.1. Enforce TLS 1.2 minimum and prefer TLS 1.3.",
+        "Validation": "Verify runtime configuration using external TLS scans and PCAP evidence."
     },
     {
         "Category": "Transport Security",
         "Finding": "Certificate verification disabled",
-        "Pattern": r"(?i)(verify\s*=\s*False|rejectUnauthorized\s*:\s*false|CERT_NONE|check_hostname\s*=\s*False)",
+        "Patterns": [
+            r"(?i)(verify\s*=\s*False|rejectUnauthorized\s*:\s*false|CERT_NONE|check_hostname\s*=\s*False|InsecureSkipVerify\s*:\s*true|TrustAllCerts|NoopHostnameVerifier)"
+        ],
         "Severity": "High",
         "Confidence": "High",
         "CWE": "CWE-295",
         "OWASP": "A02: Cryptographic Failures",
-        "Recommendation": "Enable certificate verification and hostname validation. Use trusted CA bundles and certificate pinning only where operationally justified."
+        "Impact": "Man-in-the-middle attackers may intercept or modify supposedly secure traffic.",
+        "Exploit Scenario": "TLS client accepts forged or invalid certificates.",
+        "Recommendation": "Enable certificate verification and hostname validation. Use trusted CA bundles. Avoid trust-all certificate managers.",
+        "Validation": "Test with invalid and self-signed certificates; the client should reject them."
+    },
+    {
+        "Category": "Quantum Readiness",
+        "Finding": "Classical asymmetric cryptography requiring PQC migration planning",
+        "Patterns": [
+            r"(?i)\b(RSA|ECDSA|ECDH|DiffieHellman|Diffie-Hellman|secp256r1|prime256v1|x25519|P-256|P-384)\b"
+        ],
+        "Severity": "Medium",
+        "Confidence": "Medium",
+        "CWE": "PQC-READINESS",
+        "OWASP": "Cryptographic Agility",
+        "Impact": "Long-lived confidential data may be exposed to harvest-now-decrypt-later risk once cryptographically relevant quantum computers mature.",
+        "Exploit Scenario": "Traffic or artifacts protected by classical asymmetric cryptography are captured today and decrypted in the future.",
+        "Recommendation": "Inventory all RSA/ECC/DH usage, classify data shelf-life, and plan hybrid/PQC migration using ML-KEM/ML-DSA/SLH-DSA where platform support exists.",
+        "Validation": "Confirm whether the detected usage is for key establishment, signatures, certificates, or non-security test code."
+    },
+
+    # Deserialization and file handling
+    {
+        "Category": "Deserialization",
+        "Finding": "Unsafe deserialization",
+        "Patterns": [
+            r"(?i)(pickle\.loads|pickle\.load|yaml\.load\s*\(|ObjectInputStream|readObject\(|unserialize\(|Marshal\.load|BinaryFormatter)"
+        ],
+        "Severity": "Critical",
+        "Confidence": "Medium",
+        "CWE": "CWE-502",
+        "OWASP": "A08: Software and Data Integrity Failures",
+        "Impact": "Unsafe deserialization may lead to remote code execution or privilege escalation.",
+        "Exploit Scenario": "Untrusted serialized input triggers gadget-chain execution.",
+        "Recommendation": "Avoid native object deserialization for untrusted data. Use JSON/schema validation, safe loaders, signed payloads, and allowlisted types.",
+        "Validation": "Trace data origin and confirm only trusted, integrity-protected data is deserialized."
+    },
+    {
+        "Category": "Path Traversal",
+        "Finding": "Potential path traversal",
+        "Patterns": [
+            r"(?i)(open|FileInputStream|send_file|sendFile|readFile|writeFile)\s*\([^;\n]*(request|req\.|params|query|body|input|filename|path)",
+            r"(?i)(\.\./|\.\.\\)"
+        ],
+        "Severity": "High",
+        "Confidence": "Low",
+        "CWE": "CWE-22",
+        "OWASP": "A01: Broken Access Control",
+        "Impact": "Attackers may read or write unauthorized files.",
+        "Exploit Scenario": "User-controlled filenames include '../' or absolute paths.",
+        "Recommendation": "Normalize paths, enforce base-directory checks, use allowlists, and reject traversal sequences.",
+        "Validation": "Add tests for ../, absolute paths, encoded traversal, and symlink bypasses."
+    },
+    {
+        "Category": "File Upload",
+        "Finding": "Potential unsafe file upload handling",
+        "Patterns": [
+            r"(?i)(save\(|write\(|move_uploaded_file|multer|FileUpload|MultipartFile)[^;\n]*(filename|originalname|request|req\.)",
+            r"(?i)(upload|uploads)[^;\n]*(filename|originalname)"
+        ],
+        "Severity": "High",
+        "Confidence": "Low",
+        "CWE": "CWE-434",
+        "OWASP": "A05: Security Misconfiguration",
+        "Impact": "Attackers may upload executable content, overwrite files, or trigger malware workflows.",
+        "Exploit Scenario": "User-controlled filename or content is stored without validation.",
+        "Recommendation": "Validate file type using content inspection, generate server-side filenames, store outside webroot, scan uploads, and enforce size limits.",
+        "Validation": "Test double extensions, MIME spoofing, large files, and executable content."
+    },
+
+    # Web/security config
+    {
+        "Category": "XSS",
+        "Finding": "Potential XSS sink",
+        "Patterns": [
+            r"(?i)(innerHTML|outerHTML|dangerouslySetInnerHTML|document\.write|html_safe|Markup\(|render_template_string|v-html)"
+        ],
+        "Severity": "High",
+        "Confidence": "Medium",
+        "CWE": "CWE-79",
+        "OWASP": "A03: Injection",
+        "Impact": "Attackers may execute script in user browsers, steal sessions, or perform actions as users.",
+        "Exploit Scenario": "Untrusted input is written into an HTML sink without sanitization.",
+        "Recommendation": "Use framework auto-escaping, sanitize rich HTML with approved sanitizers, and enforce Content Security Policy.",
+        "Validation": "Trace data into HTML sinks and test with encoded script payloads."
+    },
+    {
+        "Category": "Authentication",
+        "Finding": "JWT verification may be disabled or weak",
+        "Patterns": [
+            r"(?i)(verify\s*:\s*false|algorithms\s*:\s*\[\s*['\"]none['\"]|jwt\.decode\([^;\n]*(verify\s*=\s*False|options\s*=\s*\{[^}]*verify_signature[^}]*False))"
+        ],
+        "Severity": "Critical",
+        "Confidence": "Medium",
+        "CWE": "CWE-347",
+        "OWASP": "A07: Identification and Authentication Failures",
+        "Impact": "Attackers may forge tokens or bypass authentication.",
+        "Exploit Scenario": "Application decodes JWTs without verifying signature or accepts none algorithm.",
+        "Recommendation": "Always verify JWT signatures. Enforce allowed algorithms server-side and validate issuer, audience, expiry, and key rotation.",
+        "Validation": "Attempt forged JWTs and none-algorithm tokens; application must reject them."
+    },
+    {
+        "Category": "Access Control",
+        "Finding": "Potential missing authorization check",
+        "Patterns": [
+            r"(?i)(@GetMapping|@PostMapping|app\.(get|post|put|delete)|router\.(get|post|put|delete))\s*\([^;\n]+\)\s*(?![^\\n]{0,200}(auth|authorize|permission|role|guard|middleware))",
+            r"(?i)(permitAll\(\)|allowAll|isAuthenticated\(\)\s*==\s*false)"
+        ],
+        "Severity": "Medium",
+        "Confidence": "Low",
+        "CWE": "CWE-862",
+        "OWASP": "A01: Broken Access Control",
+        "Impact": "Sensitive endpoints may be reachable without proper authorization.",
+        "Exploit Scenario": "A route handler lacks authentication or role enforcement.",
+        "Recommendation": "Enforce deny-by-default authorization middleware and explicit role checks on sensitive routes.",
+        "Validation": "Map all routes to required roles and test unauthenticated/low-privilege access."
+    },
+    {
+        "Category": "Security Misconfiguration",
+        "Finding": "Debug mode enabled",
+        "Patterns": [
+            r"(?i)(debug\s*=\s*True|DEBUG\s*=\s*True|app\.run\([^;\n]*debug\s*=\s*True|NODE_ENV\s*=\s*['\"]development|spring\.profiles\.active\s*=\s*dev)"
+        ],
+        "Severity": "Medium",
+        "Confidence": "High",
+        "CWE": "CWE-489",
+        "OWASP": "A05: Security Misconfiguration",
+        "Impact": "Debug mode may expose stack traces, secrets, or administrative consoles.",
+        "Exploit Scenario": "Production deployment accidentally enables debug features.",
+        "Recommendation": "Disable debug mode in production. Use environment-specific configuration and safe error handling.",
+        "Validation": "Confirm production environment variables and runtime configuration."
+    },
+    {
+        "Category": "CORS",
+        "Finding": "Overly permissive CORS",
+        "Patterns": [
+            r"(?i)(Access-Control-Allow-Origin['\"]?\s*[:=]\s*['\"]\*|cors\(\s*\)|origin\s*:\s*['\"]\*|allowedOrigins\(['\"]\*['\"]\))"
+        ],
+        "Severity": "Medium",
+        "Confidence": "Medium",
+        "CWE": "CWE-942",
+        "OWASP": "A05: Security Misconfiguration",
+        "Impact": "Untrusted origins may interact with sensitive APIs from user browsers.",
+        "Exploit Scenario": "Wildcard CORS is combined with credentials or sensitive endpoints.",
+        "Recommendation": "Restrict CORS to trusted origins and avoid wildcard origins for authenticated APIs.",
+        "Validation": "Inspect CORS response headers for sensitive routes."
+    },
+    {
+        "Category": "Headers",
+        "Finding": "Missing or weak security headers indicator",
+        "Patterns": [
+            r"(?i)(X-Frame-Options\s*[:=]\s*['\"]ALLOW|Content-Security-Policy\s*[:=]\s*['\"]\*|helmet\(\s*\{\s*contentSecurityPolicy\s*:\s*false)"
+        ],
+        "Severity": "Medium",
+        "Confidence": "Low",
+        "CWE": "CWE-693",
+        "OWASP": "A05: Security Misconfiguration",
+        "Impact": "Weak headers can increase clickjacking, XSS, or content injection risk.",
+        "Exploit Scenario": "Browser protections are disabled or overly broad.",
+        "Recommendation": "Use secure headers: CSP, X-Frame-Options/frame-ancestors, HSTS, X-Content-Type-Options, Referrer-Policy.",
+        "Validation": "Run dynamic header scan against deployed application."
+    },
+
+    # SSRF and network
+    {
+        "Category": "SSRF",
+        "Finding": "Potential SSRF through user-controlled URL fetch",
+        "Patterns": [
+            r"(?i)(requests\.(get|post|put)|axios\.(get|post)|fetch\(|http\.get|httpClient\.(get|post)|RestTemplate\.getForObject)\s*\([^;\n]*(req\.|request\.|params|query|body|input|url)"
+        ],
+        "Severity": "High",
+        "Confidence": "Low",
+        "CWE": "CWE-918",
+        "OWASP": "A10: Server-Side Request Forgery",
+        "Impact": "Attackers may reach internal services, cloud metadata, or restricted network resources.",
+        "Exploit Scenario": "A backend fetches a user-supplied URL without validation.",
+        "Recommendation": "Use URL allowlists, block private/metadata IP ranges, enforce DNS pinning protections, and restrict outbound network egress.",
+        "Validation": "Test with metadata IPs, localhost, private ranges, redirects, and DNS rebinding."
+    },
+
+    # Logging / privacy
+    {
+        "Category": "Privacy",
+        "Finding": "Potential sensitive data logging",
+        "Patterns": [
+            r"(?i)(console\.log|logger\.(info|debug|warn|error)|print)\s*\([^;\n]*(password|token|secret|authorization|cookie|aadhaar|pan|ssn|credit|card|dob|email|phone)"
+        ],
+        "Severity": "Medium",
+        "Confidence": "Medium",
+        "CWE": "CWE-532",
+        "OWASP": "A09: Security Logging and Monitoring Failures",
+        "Impact": "Sensitive information may be exposed in logs or monitoring systems.",
+        "Exploit Scenario": "Logs are accessed by unauthorized users or shipped to third-party systems.",
+        "Recommendation": "Mask sensitive fields, use structured redaction, and classify logs by data sensitivity.",
+        "Validation": "Search runtime logs and observability sinks for sensitive fields."
+    },
+
+    # Dependency/process indicators
+    {
+        "Category": "Supply Chain",
+        "Finding": "Install script or lifecycle hook in package manifest",
+        "Patterns": [
+            r"(?i)\"(preinstall|postinstall|prepare)\"\s*:",
+            r"(?i)scripts\s*=\s*\{[^}]*install"
+        ],
+        "Severity": "Medium",
+        "Confidence": "Medium",
+        "CWE": "CWE-829",
+        "OWASP": "A08: Software and Data Integrity Failures",
+        "Impact": "Dependency lifecycle scripts may execute arbitrary commands during build/install.",
+        "Exploit Scenario": "A compromised dependency or package script runs malicious code in CI/CD.",
+        "Recommendation": "Review lifecycle scripts, pin dependencies, use lockfiles, enable provenance where available, and run builds in sandboxed environments.",
+        "Validation": "Audit package scripts and CI execution logs."
+    },
+    {
+        "Category": "Supply Chain",
+        "Finding": "Floating or broad dependency version",
+        "Patterns": [
+            r"(?i)\"[A-Za-z0-9_.@/\-]+\"\s*:\s*\"(\*|latest|x|>=|>|~|\^)",
+            r"(?i)[A-Za-z0-9_.\-]+\s*(>=|>|~=|\*)\s*[0-9]*"
+        ],
+        "Severity": "Medium",
+        "Confidence": "Low",
+        "CWE": "CWE-1104",
+        "OWASP": "A06: Vulnerable and Outdated Components",
+        "Impact": "Builds may resolve to unexpected or vulnerable versions.",
+        "Exploit Scenario": "A future dependency release introduces a vulnerability or malicious payload.",
+        "Recommendation": "Pin versions, commit lockfiles, use dependency review, and monitor vulnerability feeds.",
+        "Validation": "Confirm deterministic builds and lockfile enforcement in CI."
     }
 ]
 
-def _severity_rank(sev):
-    return {"Critical": 4, "High": 3, "Medium": 2, "Low": 1, "Info": 0}.get(str(sev), 0)
-
-def _line_no(text, idx):
-    try:
-        return text[:idx].count("\\n") + 1
-    except Exception:
-        return ""
-
-def _safe_snippet(text, start, end, radius=90):
-    s = max(0, start - radius)
-    e = min(len(text), end + radius)
-    snippet = text[s:e].replace("\\n", " ").replace("\\r", " ")
-    # simple secret redaction
-    snippet = re.sub(r"(?i)(password|secret|token|api[_-]?key)(\\s*[:=]\\s*)['\\\"][^'\\\"]+['\\\"]", r"\\1\\2'[REDACTED]'", snippet)
-    return snippet[:260]
+def _dedupe_vulnerabilities(vulns):
+    seen = set()
+    out = []
+    for v in vulns:
+        key = (v.get("Finding"), v.get("Source File"), v.get("Line"), v.get("Evidence Snippet"))
+        if key not in seen:
+            seen.add(key)
+            out.append(v)
+    return out
 
 def analyze_source_vulnerabilities_from_files(files):
     vulns = []
     for path, raw in files:
         ext = Path(path).suffix.lower()
-        if ext not in SOURCE_EXTENSIONS and not _is_manifest(path):
+        if ext not in SOURCE_EXTENSIONS and not is_manifest(path):
             continue
         text = _safe_text(raw)
         if not text:
             continue
-        for rule in VULN_PATTERNS:
-            try:
-                matches = list(re.finditer(rule["Pattern"], text, flags=re.IGNORECASE))
-            except Exception:
-                matches = []
-            for m in matches[:50]:
-                vulns.append({
-                    "Severity": rule["Severity"],
-                    "Category": rule["Category"],
-                    "Finding": rule["Finding"],
-                    "CWE": rule["CWE"],
-                    "OWASP": rule["OWASP"],
-                    "Source File": path,
-                    "Line": _line_no(text, m.start()),
-                    "Confidence": rule["Confidence"],
-                    "Evidence Snippet": _safe_snippet(text, m.start(), m.end()),
-                    "Recommendation": rule["Recommendation"],
-                    "Fix Priority": "Immediate" if rule["Severity"] == "Critical" else "High" if rule["Severity"] == "High" else "Planned"
-                })
-    vulns.sort(key=lambda r: (_severity_rank(r["Severity"]), str(r["Source File"]), int(r["Line"]) if str(r["Line"]).isdigit() else 0), reverse=True)
+        context = _file_context(path)
+        for rule in VULN_RULES:
+            for pattern in rule.get("Patterns", []):
+                try:
+                    matches = list(re.finditer(pattern, text, flags=re.IGNORECASE | re.MULTILINE))
+                except Exception:
+                    matches = []
+                for m in matches[:75]:
+                    severity = rule["Severity"]
+                    confidence = rule["Confidence"]
+
+                    # Reduce noise for tests where appropriate.
+                    if context == "Test" and severity in ["Critical", "High"]:
+                        confidence = "Low"
+
+                    vulns.append({
+                        "Severity": severity,
+                        "Category": rule["Category"],
+                        "Finding": rule["Finding"],
+                        "CWE": rule["CWE"],
+                        "OWASP": rule["OWASP"],
+                        "Source File": path,
+                        "Line": _line_no(text, m.start()),
+                        "Code Context": context,
+                        "Confidence": confidence,
+                        "Impact": rule["Impact"],
+                        "Exploit Scenario": rule["Exploit Scenario"],
+                        "Evidence Snippet": _safe_snippet(text, m.start(), m.end()),
+                        "Recommendation": rule["Recommendation"],
+                        "Validation": rule["Validation"],
+                        "Fix Priority": "Immediate" if severity == "Critical" else "High" if severity == "High" else "Planned"
+                    })
+    vulns = _dedupe_vulnerabilities(vulns)
+    vulns.sort(
+        key=lambda r: (
+            _severity_rank(r.get("Severity")),
+            _confidence_rank(r.get("Confidence")),
+            str(r.get("Source File")),
+            int(r.get("Line")) if str(r.get("Line")).isdigit() else 0
+        ),
+        reverse=True
+    )
     return vulns
 
 def summarize_vulnerabilities(vulns):
+    if not vulns:
+        return {
+            "Total Vulnerabilities": 0,
+            "Critical": 0,
+            "High": 0,
+            "Medium": 0,
+            "Low": 0,
+            "Top Category": "None",
+            "Board Risk": "No source vulnerability indicators detected"
+        }
+    df = pd.DataFrame(vulns)
+    critical = int((df["Severity"] == "Critical").sum())
+    high = int((df["Severity"] == "High").sum())
+    medium = int((df["Severity"] == "Medium").sum())
+    low = int((df["Severity"] == "Low").sum())
+    top = df["Category"].value_counts().idxmax() if "Category" in df else "Unknown"
+    board_risk = "Critical source-code risk" if critical else "High source-code risk" if high else "Moderate source-code risk" if medium else "Low source-code risk"
     return {
         "Total Vulnerabilities": len(vulns),
-        "Critical": sum(1 for v in vulns if v.get("Severity") == "Critical"),
-        "High": sum(1 for v in vulns if v.get("Severity") == "High"),
-        "Medium": sum(1 for v in vulns if v.get("Severity") == "Medium"),
-        "Low": sum(1 for v in vulns if v.get("Severity") == "Low"),
-        "Top Category": pd.DataFrame(vulns)["Category"].value_counts().idxmax() if vulns else "None"
+        "Critical": critical,
+        "High": high,
+        "Medium": medium,
+        "Low": low,
+        "Top Category": top,
+        "Board Risk": board_risk
     }
 
 def source_vulnerability_roadmap(vulns):
     critical = [v for v in vulns if v.get("Severity") == "Critical"]
     high = [v for v in vulns if v.get("Severity") == "High"]
     medium = [v for v in vulns if v.get("Severity") == "Medium"]
+    categories = sorted(set(v.get("Category", "Unknown") for v in vulns))
     return [
         {
             "Timeline": "0–7 Days",
             "Phase": "Critical Risk Triage",
-            "Action": "Fix exploitable critical findings first: injection, unsafe deserialization, dynamic code execution, and JWT verification issues.",
-            "Affected Findings": len(critical)
+            "Action": "Fix exploitable critical findings first: injection, unsafe deserialization, dynamic code execution, command execution, and JWT verification bypass.",
+            "Affected Findings": len(critical),
+            "Owner": "Security Engineering + Application Owner",
+            "Validation": "Security tests prove exploit path is closed; code review confirms safe pattern."
         },
         {
             "Timeline": "7–30 Days",
             "Phase": "High-Risk Remediation",
-            "Action": "Remove hardcoded secrets, weak crypto, disabled certificate verification, XSS sinks, and path traversal risks.",
-            "Affected Findings": len(high)
+            "Action": "Remove hardcoded secrets, weak crypto, disabled certificate verification, XSS sinks, path traversal, and SSRF indicators.",
+            "Affected Findings": len(high),
+            "Owner": "Application Team + DevSecOps",
+            "Validation": "Static scan is clean or risk-accepted; secrets rotated; TLS/cert validation tested."
         },
         {
             "Timeline": "30–90 Days",
             "Phase": "Secure SDLC Controls",
-            "Action": "Add SAST, secret scanning, dependency scanning, code review gates, and SBOM/CBOM generation into CI/CD.",
-            "Affected Findings": len(medium)
+            "Action": "Add SAST, secret scanning, dependency scanning, code review gates, SBOM/CBOM generation, and policy checks into CI/CD.",
+            "Affected Findings": len(medium),
+            "Owner": "Platform Engineering + Security Governance",
+            "Validation": "CI/CD blocks critical findings and produces signed release evidence."
         },
         {
             "Timeline": "Ongoing",
-            "Phase": "Governance",
-            "Action": "Track recurrence, remediation SLA, risk acceptance, and board-level cyber posture trends.",
-            "Affected Findings": len(vulns)
+            "Phase": "Board Governance",
+            "Action": "Track recurrence, remediation SLA, exception aging, crypto-agility progress, and SBOM/CBOM coverage trends.",
+            "Affected Findings": len(vulns),
+            "Owner": "CISO / Risk Committee",
+            "Validation": "Monthly dashboard reports trend by severity and category: " + (", ".join(categories) if categories else "None")
         }
     ]
+
+def vulnerability_recommendations_by_category(vulns):
+    if not vulns:
+        return []
+    playbook = {
+        "Injection": "Mandate parameterized database access and input-schema validation.",
+        "Command Execution": "Eliminate shell execution or enforce safe argument-array APIs with allowlists.",
+        "Code Execution": "Remove eval/exec-style functionality and replace with safe parsers or dispatch maps.",
+        "Secrets": "Rotate exposed credentials and adopt vault-backed secret management with pre-commit scanning.",
+        "Cryptography": "Remove weak algorithms and create an approved cryptographic baseline with crypto-agility.",
+        "Transport Security": "Enable certificate validation and enforce TLS 1.2+ / TLS 1.3 where possible.",
+        "Deserialization": "Replace unsafe native deserialization with safe schema-based formats.",
+        "Path Traversal": "Normalize paths and enforce base-directory allowlists.",
+        "File Upload": "Validate content type, generate safe filenames, store outside webroot, and scan uploads.",
+        "XSS": "Use auto-escaping, sanitizer libraries, and CSP.",
+        "Authentication": "Enforce JWT signature validation, issuer, audience, expiry, and key rotation.",
+        "Access Control": "Apply deny-by-default authorization middleware and route-level role checks.",
+        "Security Misconfiguration": "Disable debug mode and enforce production-safe configuration.",
+        "CORS": "Restrict CORS origins and avoid wildcard origins for authenticated APIs.",
+        "Headers": "Adopt secure browser headers and CSP.",
+        "SSRF": "Use URL allowlists, block private IPs, and restrict egress.",
+        "Privacy": "Redact sensitive fields from logs and monitoring.",
+        "Supply Chain": "Pin dependencies, use lockfiles, and review install scripts."
+    }
+    df = pd.DataFrame(vulns)
+    rows = []
+    for cat, count in df["Category"].value_counts().items():
+        rows.append({
+            "Category": cat,
+            "Findings": int(count),
+            "Primary Recommendation": playbook.get(cat, "Review and remediate according to secure coding standards."),
+            "Board Message": "This category should be tracked until all Critical/High findings are closed or formally risk-accepted."
+        })
+    return rows
 
 # UI
 st.sidebar.title('🛡️ RBI QuBOM')
@@ -914,7 +1309,7 @@ with home_tabs[1]:
         sr=analyze_source(src,target); sm=sr['summary']
         st.markdown(f"""<div class="grid4"><div class="metric"><div class="label">Files Scanned</div><div class="val">{sm['Files Scanned']}</div></div><div class="metric"><div class="label">SBOM Components</div><div class="val">{sm['SBOM Components']}</div></div><div class="metric"><div class="label">Source CBOM Findings</div><div class="val">{sm['Source CBOM Findings']}</div></div><div class="metric"><div class="label">Quantum Vulnerable</div><div class="val">{sm['Quantum-Vulnerable Findings']}</div>{badge('Priority 2')}</div></div>""", unsafe_allow_html=True)
         if sm['Parsing Notes']!='No parsing errors': st.warning(sm['Parsing Notes'])
-        st_tabs=st.tabs(['Source Summary','SBOM','Source CBOM','Source Findings','Vulnerabilities','Fix Roadmap','Exports'])
+        st_tabs=st.tabs(['Source Summary','SBOM','Source CBOM','Source Findings','Vulnerabilities','Fix Roadmap','Recommendation Playbook','Exports'])
         with st_tabs[0]: st.dataframe(pd.DataFrame(sm.items(),columns=['Metric','Value']),use_container_width=True,hide_index=True); st.dataframe(pd.DataFrame({'Manifest':sr['manifests']}),use_container_width=True,hide_index=True)
         with st_tabs[1]: st.dataframe(pd.DataFrame(sr['sbom']),use_container_width=True,hide_index=True)
         with st_tabs[2]: st.dataframe(pd.DataFrame(sr['source_cbom']),use_container_width=True,hide_index=True)
@@ -928,6 +1323,9 @@ with home_tabs[1]:
             st.markdown('### Recommendations to Fix Vulnerabilities')
             st.dataframe(pd.DataFrame(sr.get('vulnerability_roadmap', [])),use_container_width=True,hide_index=True)
         with st_tabs[6]:
+            st.markdown('### Vulnerability Recommendation Playbook')
+            st.dataframe(pd.DataFrame(sr.get('vulnerability_recommendations', [])),use_container_width=True,hide_index=True)
+        with st_tabs[7]:
             st.download_button('Download Source Board HTML Report',source_html_report(sr),'rbi_qubom_source_board_report.html','text/html')
             st.download_button('Download Source SBOM CSV',pd.DataFrame(sr['sbom']).to_csv(index=False),'rbi_qubom_source_sbom.csv','text/csv')
             st.download_button('Download Source CBOM CSV',pd.DataFrame(sr['source_cbom']).to_csv(index=False),'rbi_qubom_source_cbom.csv','text/csv')
