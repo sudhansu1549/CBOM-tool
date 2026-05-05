@@ -1273,9 +1273,9 @@ target=st.sidebar.text_input('Target Application','RBI-Website')
 unit=st.sidebar.text_input('Business Unit','Network')
 classification=st.sidebar.selectbox('Classification',['CONFIDENTIAL','INTERNAL','RESTRICTED','PUBLIC'],0)
 
-st.markdown("""<div class="hero"><div class="heroTop"><div><span class="badge bblue">RBI QuBOM</span><span class="badge bviolet">PCAP + Source Code</span><span class="badge">Stable Priority Model</span><h1>RBI QuBOM Board Dashboard</h1><p class="sub">Generate PCAP-based cryptographic CBOM, source-code cryptography CBOM, and source-code SBOM from one home page. Quantum priority is defined below.</p></div><div class="uploadBox"><b>Choose analysis type below</b><p class="muted">PCAP CBOM and Source SBOM/CBOM are both available on the home page.</p></div></div></div>""", unsafe_allow_html=True)
+st.markdown("""<div class="hero"><div class="heroTop"><div><span class="badge bblue">RBI QuBOM</span><span class="badge bviolet">PCAP + Source Code</span><span class="badge">Stable Priority Model</span><h1>RBI QuBOM Board Dashboard</h1><p class="sub">Generate PCAP-based cryptographic CBOM, source-code cryptography CBOM, and source-code SBOM from one home page. Quantum priority is defined once and applied consistently.</p></div><div class="uploadBox"><b>Choose analysis type below</b><p class="muted">PCAP CBOM and Source SBOM/CBOM are both available on the home page.</p></div></div></div>""", unsafe_allow_html=True)
 
-st.markdown('<div class="sectionHead"><div><h2>Quantum Priority Definition</h2></div></div>', unsafe_allow_html=True)
+st.markdown('<div class="sectionHead"><div><h2>Quantum Priority Definition</h2><p class="desc">This fixed model prevents the quantum-readiness parameter from changing unpredictably across reports.</p></div></div>', unsafe_allow_html=True)
 st.dataframe(priority_definition(), use_container_width=True, hide_index=True)
 
 home_tabs=st.tabs(['PCAP-based CBOM','Source-code SBOM & CBOM'])
